@@ -1,0 +1,4 @@
+# Renombrá este archivo a  omniops_login.txt  y poné tus datos reales.
+# Este archivo queda SOLO en tu compu. No lo compartas ni lo subas a ningún lado.
+email=admin@omniops.com
+password=1

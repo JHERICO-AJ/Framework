@@ -1,0 +1,11 @@
+# --- NUNCA subir credenciales ---
+omniops_login.txt
+omniops_cookie.txt
+
+# --- entorno y temporales ---
+venv/
+__pycache__/
+*.pyc
+
+# --- salidas generadas ---
+reportes/

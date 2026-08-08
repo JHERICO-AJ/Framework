@@ -1,0 +1,10 @@
+# Dependencias del framework de validación OmniOps.
+# Instalar con:  pip install -r requirements.txt
+#
+# Todo lo demás (leer la API, login, comparar) usa la librería estándar de Python.
+
+pymodbus>=3.6      # leer el simulador BESS por Modbus (capa cálculo)
+playwright>=1.44   # leer la pantalla/UI con un navegador real (capa pantalla)
+
+# IMPORTANTE: después de instalar, correr UNA vez para bajar el navegador:
+#     playwright install chromium

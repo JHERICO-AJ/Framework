@@ -1,0 +1,5 @@
+# Renombrá este archivo a  omniops_cookie.txt  y pegá adentro, en UNA sola línea,
+# el valor completo del header "Cookie" que copiaste del navegador.
+# Ejemplo (NO uses este, es inventado):
+# .AspNetCore.Cookies=CfDJ8N...; otras=...
+# Este archivo queda SOLO en tu compu. No lo compartas.
