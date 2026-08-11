@@ -20,30 +20,22 @@ Probar la lógica:  python watch_compare_anchored.py --self-check
 import sys
 import time
 
-from auth import make_auth, _parse_dt
-from check_pcs_power import BASE_URL, SUMMARY_PATH
-from compare_pcs_power import read_sim_total_kw, compare
+from auth import make_auth
+from config import (BASE_URL, SUMMARY_PATH, OMNIOPS_EVERY_S, SIM_EVERY_S,
+                    BUFFER_S, GAP_CONFIABLE_S, GAP_MAX_ANCLAJE_S)
+from omniops_time import parse_epoch
+from timeanchor import match_buffer, podar
+from source_modbus import read_sim_total_kw
+from compare_pcs_power import compare
 from reporter import Reporter
 
-OMNIOPS_EVERY_S = 6     # cada cuánto le preguntamos a OmniOps (suave para el 429)
-SIM_EVERY_S = 1         # cada cuánto guardamos el simulador en el historial
-BUFFER_S = 90           # cuánto historial del simulador guardamos
-MATCH_MAX_GAP_S = 1.5   # si el mejor match está más lejos que esto, no confío
+MATCH_MAX_GAP_S = GAP_MAX_ANCLAJE_S   # hasta este gap intenta anclar (1.5)
 
-
-def parse_epoch(ts):
-    dt = _parse_dt(ts)
-    return dt.timestamp() if dt else None
-
-
-def match_buffer(buffer, target_epoch):
-    """Del historial, el valor cuya hora esté más cerca del instante de OmniOps."""
-    best, best_gap = None, None
-    for ep, kw in buffer:
-        gap = abs(ep - target_epoch)
-        if best_gap is None or gap < best_gap:
-            best, best_gap = (ep, kw), gap
-    return best, best_gap
+# Modo presentación (para mostrar a un alto cargo). Se prende con --limpio.
+# En limpio: líneas en idioma humano, y las mediciones descartadas por desfase
+# se muestran como "· midiendo…" en vez de con la palabra técnica.
+# El resumen ejecutivo se genera SIEMPRE (lo arma reporter.py), prendido o no.
+LIMPIO = False
 
 
 def run_live():
@@ -51,9 +43,12 @@ def run_live():
     buffer = []
     state = {"n": 0, "ok": 0, "fallas": []}
     last_omni = 0.0
-    reporte = Reporter(gap_confiable_s=1.0)
-    print("Comparación ANCLADA por tiempo, en vivo...  (Ctrl+C para parar)")
-    print("(los primeros segundos llena el historial; esperá una lectura o dos)\n")
+    reporte = Reporter(gap_confiable_s=GAP_CONFIABLE_S)
+    if LIMPIO:
+        print("Validación de OmniOps en vivo…  (Ctrl+C para terminar)\n")
+    else:
+        print("Comparación ANCLADA por tiempo, en vivo...  (Ctrl+C para parar)")
+        print("(los primeros segundos llena el historial; esperá una lectura o dos)\n")
     try:
         while True:
             now = time.time()
@@ -61,7 +56,7 @@ def run_live():
             try:
                 kw, _ = read_sim_total_kw()
                 buffer.append((now, kw))
-                buffer[:] = [(e, v) for e, v in buffer if now - e <= BUFFER_S]
+                podar(buffer, now)
             except Exception as e:
                 print("  (error leyendo simulador):", e)
 
@@ -76,18 +71,32 @@ def run_live():
                     hora = (disp.get("timestamp") or "")[11:19]
 
                     if actual is None or tep is None:
-                        print(f"[{hora}]  OmniOps sin dato utilizable")
+                        # sin dato utilizable: en limpio no asustamos, mostramos vida
+                        print(f"[{hora}]  · midiendo…" if LIMPIO
+                              else f"[{hora}]  OmniOps sin dato utilizable")
                     else:
                         (mep, mkw), gap = match_buffer(buffer, tep)
                         if gap is None or gap > MATCH_MAX_GAP_S:
-                            print(f"[{hora}]  aún no puedo anclar (gap {gap}s, "
-                                  "historial corto todavía)")
+                            # descartada por desfase: útil para nosotros, ruido para
+                            # un directivo -> en limpio se ve como "midiendo…"
+                            print(f"[{hora}]  · midiendo…" if LIMPIO
+                                  else f"[{hora}]  aún no puedo anclar (gap {gap}s, "
+                                       "historial corto todavía)")
                         else:
                             ok, diff, ratio, tol = compare(mkw, float(actual))
-                            print(f"[{hora}]  esperado={mkw:8.0f} (anclado, "
-                                  f"±{gap:.1f}s)  actual={float(actual):8.0f}  "
-                                  f"razón={ratio:5.2f}   "
-                                  f"{'PASA ' if ok else 'FALLA <<<'}")
+                            if LIMPIO:
+                                if ok:
+                                    print(f"[{hora}]  OmniOps calcula correcto ✓   "
+                                          f"({float(actual):.0f} kW)")
+                                else:
+                                    print(f"[{hora}]  OmniOps NO coincide ✗   "
+                                          f"(esperado {mkw:.0f}, mostró "
+                                          f"{float(actual):.0f} kW)")
+                            else:
+                                print(f"[{hora}]  esperado={mkw:8.0f} (anclado, "
+                                      f"±{gap:.1f}s)  actual={float(actual):8.0f}  "
+                                      f"razón={ratio:5.2f}   "
+                                      f"{'PASA ' if ok else 'FALLA <<<'}")
                             state["n"] += 1
                             if ok:
                                 state["ok"] += 1
@@ -104,10 +113,19 @@ def run_live():
             time.sleep(SIM_EVERY_S)
     except KeyboardInterrupt:
         print("\n=== RESUMEN ===")
-        print(f"Comparaciones ancladas: {state['n']}   PASA: {state['ok']}   "
-              f"FALLA: {len(state['fallas'])}")
-        for hora, exp, act, r in state["fallas"][:10]:
-            print(f"   {hora}: esperado={exp:.0f} actual={act:.0f} razón={r:.2f}")
+        if LIMPIO:
+            tasa = (state["ok"] / state["n"] * 100) if state["n"] else 0.0
+            print(f"Mediciones verificadas: {state['n']}   "
+                  f"Correctas: {state['ok']}   "
+                  f"Con diferencia: {len(state['fallas'])}   "
+                  f"Acierto: {tasa:.1f}%")
+            for hora, exp, act, r in state["fallas"][:10]:
+                print(f"   {hora}: se esperaba {exp:.0f} kW, mostró {act:.0f} kW")
+        else:
+            print(f"Comparaciones ancladas: {state['n']}   PASA: {state['ok']}   "
+                  f"FALLA: {len(state['fallas'])}")
+            for hora, exp, act, r in state["fallas"][:10]:
+                print(f"   {hora}: esperado={exp:.0f} actual={act:.0f} razón={r:.2f}")
         reporte.save()
 
 
@@ -128,6 +146,8 @@ def self_check():
 
 
 if __name__ == "__main__":
+    if "--limpio" in sys.argv:
+        LIMPIO = True                    # modo presentación (terminal en limpio)
     if "--self-check" in sys.argv:
         self_check()
     else:

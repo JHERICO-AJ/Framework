@@ -153,6 +153,69 @@ En la cabecera de los archivos:
   (~3 min) y tropieza en cada renovación. Efecto: el dashboard puede quedar sin
   actualizarse solo. Es tema del backend/front de OmniOps, no del framework.
 
+## 12. Estructura — dónde está cada cosa (post-refactor)
+
+Tras el refactor (POM + DRY), cada responsabilidad vive en un solo lugar:
+
+```
+config.py          TODA la configuración (URLs, puertos, intervalos, tolerancias,
+                   umbrales de gap). Si cambia el entorno, se toca SOLO acá.
+
+Fuentes de datos
+  auth.py          login + token (portero de la API)
+  source_modbus.py ÚNICA lectura del simulador (signed16, read_sim_total_kw,
+                   LectorModbus/LectorFalso). Acá se enchufa otro simulador.
+  omniops_time.py  parseo de tiempo de OmniOps (parse_epoch)
+  timeanchor.py    anclaje por tiempo (match_buffer, podar)
+
+Capa CÁLCULO
+  check_pcs_power.py    smoke test de la API
+  compare_pcs_power.py  oráculo sim vs API (compare, report)
+
+Capa PANTALLA (POM)
+  pages/base_page.py        común (¿en login?, esperar carga)
+  pages/login_page.py       selectores del login + login()
+  pages/monitoring_page.py  device-card, metric-value, tabla de alarmas + parse_kw
+  ui_reader.py              fachada: abre navegador, compone las pages, read()
+
+Alarmas
+  alarms_api.py      lee alarmas de la API
+  alarms_oracle.py   oráculo de causa (bit/umbral) usando source_modbus
+  verdict.py         el juez de 4 casos
+  watch_alarms.py    monitor de alarmas
+  alarms_catalog.example.py  plantilla del catálogo
+
+Monitores / reportes
+  watch_compare_anchored.py  cálculo en vivo (sim vs API)
+  watch_3capas.py            3 capas en vivo (cálculo + pantalla)
+  reporter.py                reportes (técnico + executive_summary)
+```
+
+Regla para ubicar algo: **¿es un selector de UI?** → la page correspondiente.
+**¿un número de config?** → `config.py`. **¿leer el simulador?** → `source_modbus.py`.
+
+## 11. Modo presentación (para mostrar a un alto cargo)
+
+La categoría **descartada** (desfase de tiempo) te sirve *a vos* para saber que
+el anclaje funciona, pero a un directivo lo confunde. Por eso:
+
+- **Reporte ejecutivo:** los monitores (`watch_compare_anchored.py` y
+  `watch_3capas.py`) generan **siempre**, además del reporte técnico, un
+  `executive_summary_*.txt` **en inglés** y con **PASS / FAIL**: solo mediciones
+  verificadas, passed / failed y **pass rate**. No menciona descartadas ni
+  desfase. Es el que mostrás; no hay que acordarse de activar nada.
+
+- **Terminal en vivo:** si vas a hacer una demo en vivo, corré con `--limpio`:
+
+  ```bash
+  python watch_compare_anchored.py --limpio
+  python watch_3capas.py --limpio
+  ```
+
+  En limpio las líneas van en idioma humano (`OmniOps calcula correcto ✓`) y las
+  mediciones descartadas por desfase se ven como `· midiendo…` (muestra que está
+  trabajando, no como un error). Sin `--limpio`, ves todo el detalle como siempre.
+
 ## 10. Próximos pasos posibles
 
 - Validar más métricas (SoC, voltaje, temperatura): mismo patrón, otro registro.
