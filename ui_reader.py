@@ -1,10 +1,9 @@
 """
-ui_reader.py — lee el número que se MUESTRA en la pantalla (con Playwright).
+ui_reader.py — capa PANTALLA (Playwright), ahora como FACHADA sobre el POM.
 
-Cierra la última capa de validación: API -> pantalla. Lee "Actual PCS Power"
-tal como lo ve el usuario (con un decimal y en kW) para compararlo contra la API.
-
-Login por ahora: email/contraseña (lee omniops_login.txt, el mismo de siempre).
+Los selectores ya no viven acá: están en pages/ (LoginPage, MonitoringPage).
+Este archivo solo orquesta: abre el navegador una vez, se loguea y lee muchas
+veces. watch_3capas.py sigue usando UiSession.read() igual que antes.
 
 Requiere:  pip install playwright   y luego   playwright install chromium
 SOLO LEE la pantalla; no hace clics que cambien nada.
@@ -12,10 +11,11 @@ SOLO LEE la pantalla; no hace clics que cambien nada.
 
 from __future__ import annotations
 
-import re
+from config import HEADLESS
+from pages.login_page import LoginPage
+from pages.monitoring_page import MonitoringPage, MONITORING_URL, parse_kw
 
-MONITORING_URL = "http://localhost:5173/monitoring?timeRange=24h"
-LOGIN_URL = "http://localhost:5173/login"   # ajustar si la pantalla de login es otra
+LOGIN_URL = LoginPage.URL
 
 
 def _load_creds(path="omniops_login.txt"):
@@ -28,107 +28,89 @@ def _load_creds(path="omniops_login.txt"):
     return creds
 
 
-def parse_kw(texto):
-    """De un texto tipo '-2373.2 kW' saca el número. Sin dato (N/A, —) -> None."""
-    if texto is None:
-        return None
-    t = texto.strip().lower()
-    if t in ("n/a", "na", "—", "-", "", "sin dato"):
-        return None
-    m = re.search(r"-?\d[\d,]*\.?\d*", texto.replace(",", ""))
-    return float(m.group()) if m else None
-
-
 def leer_ui_pcs_power(headless=True):
-    """Abre el dashboard, se loguea, y devuelve el valor de 'Actual PCS Power' en kW."""
+    """Abre el dashboard, se loguea y devuelve 'Actual PCS Power' en kW (one-shot)."""
     from playwright.sync_api import sync_playwright
 
     creds = _load_creds()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
-        page = browser.new_page()
-
-        # 1) login por email/contraseña (campos por su id: #loginUser / #loginPassword)
-        page.goto(LOGIN_URL)
-        page.locator("#loginUser").fill(creds["email"])
-        page.locator("#loginPassword").fill(creds["password"])
-        page.locator("button.login-submit-button").click()
-
-        # 2) esperar a que el login procese y luego ir al dashboard
-        page.wait_for_load_state("networkidle", timeout=15000)
-        page.goto(MONITORING_URL)
-
-        # 3) ubicar el número por su rótulo "Actual PCS Power"
-        #    (el device-card que contiene ese título, y dentro su metric-value)
-        card = page.locator(".device-card", has_text="Actual PCS Power")
-        card.wait_for(timeout=15000)
-        texto = card.locator(".metric-value").inner_text()
-
+        context = browser.new_context(ignore_https_errors=True)  # cert dev del hub
+        page = context.new_page()
+        login = LoginPage(page)
+        monitoring = MonitoringPage(page)
+        login.login(creds["email"], creds["password"])
+        monitoring.ir()
+        result = monitoring.leer_pcs_power()
         browser.close()
-        return parse_kw(texto), texto
-
+        return result
 
 
 class UiSession:
     """Sesión de navegador persistente: se loguea UNA vez y lee muchas veces."""
 
-    def __init__(self, headless=True):
+    def __init__(self, headless=HEADLESS, recargar=False):
         from playwright.sync_api import sync_playwright
         self._pw = sync_playwright().start()
         self.browser = self._pw.chromium.launch(headless=headless)
-        self.page = self.browser.new_page()
+        # ignore_https_errors=True: el hub de SignalR (https://localhost:7187) usa
+        # un certificado de desarrollo autofirmado que el Chromium automatizado no
+        # confía -> el negotiate rebota con ERR_CERT_AUTHORITY_INVALID y SignalR no
+        # conecta. Ignorando el error de cert, el WebSocket conecta y el dashboard
+        # se actualiza SOLO -> ya no hace falta recargar en cada lectura.
+        self.context = self.browser.new_context(ignore_https_errors=True)
+        self.page = self.context.new_page()
+        # recargar=False (por defecto): lee el DOM en vivo (SignalR lo actualiza).
+        # recargar=True: vuelve al "modo recargar" (fallback si el tiempo real falla).
+        self.recargar = recargar
+
+        self._creds = _load_creds()
+        self.login_page = LoginPage(self.page)
+        self.monitoring = MonitoringPage(self.page)
+
         self._login()
         self._entrar_al_dashboard()
 
+    # --- orquestación de sesión ---
+    def _login(self):
+        self.login_page.login(self._creds["email"], self._creds["password"])
+
+    def _en_login(self):
+        return self.monitoring.esta_en_login()
+
     def _entrar_al_dashboard(self, intentos=5):
-        """Va al dashboard y confirma que entró; si rebota al login, reintenta
-        (le da a la app el respiro para dejar la sesión lista)."""
+        """Va al dashboard y confirma que entró; si rebota al login, reintenta."""
         import time as _t
         for i in range(intentos):
-            self.page.goto(MONITORING_URL)
-            self.page.wait_for_load_state("networkidle", timeout=15000)
-            if "login" not in (self.page.url or ""):
+            self.monitoring.ir()
+            if not self._en_login():
                 try:
-                    self.page.locator(".device-card",
-                                      has_text="Actual PCS Power").wait_for(timeout=10000)
+                    self.monitoring.esperar_card()
                     return
                 except Exception:
                     pass
             _t.sleep(2)          # respiro y reintento
-            if "login" in (self.page.url or ""):
+            if self._en_login():
                 self._login()
         raise RuntimeError("no pude entrar al dashboard tras varios intentos")
 
-    def _login(self):
-        creds = _load_creds()
-        self.page.goto(LOGIN_URL)
-        self.page.locator("#loginUser").fill(creds["email"])
-        self.page.locator("#loginPassword").fill(creds["password"])
-        self.page.locator("button.login-submit-button").click()
-        self.page.wait_for_load_state("networkidle", timeout=15000)
-
-    def _leer_dom(self):
-        card = self.page.locator(".device-card", has_text="Actual PCS Power")
-        card.wait_for(timeout=15000)
-        texto = card.locator(".metric-value").inner_text()
-        return parse_kw(texto), texto
-
-    def _en_login(self):
-        return "login" in (self.page.url or "")
-
     def _asegurar_sesion(self):
-        """Si OmniOps me pateó al login (sesión vencida), me re-logueo solo,
-        igual que auth.py hacía ante un 401 en la API."""
+        """Si OmniOps me pateó al login (sesión vencida), me re-logueo solo."""
         if self._en_login():
             self._login()
             self._entrar_al_dashboard()
 
+    def _leer_dom(self):
+        return self.monitoring.leer_pcs_power()
+
+    # --- lecturas ---
     def read(self):
-        """Lee el valor recargando la página para traer el dato fresco.
-        Si la sesión venció, se re-loguea solo y reintenta."""
+        """Por defecto NO recarga: lee el DOM en vivo, que SignalR mantiene
+        actualizado. Si recargar=True, vuelve al modo recargar. Si la sesión
+        venció, se re-loguea solo."""
         try:
-            self.page.reload()
-            self.page.wait_for_load_state("networkidle", timeout=15000)
+            if self.recargar:
+                self.monitoring.recargar()
             if self._en_login():
                 self._asegurar_sesion()
             return self._leer_dom()
@@ -150,7 +132,7 @@ class UiSession:
         return val0, txt0, False          # no cambió en el tiempo dado
 
     def close(self):
-        for paso in (self.browser.close, self._pw.stop):
+        for paso in (self.context.close, self.browser.close, self._pw.stop):
             try:
                 paso()
             except Exception:

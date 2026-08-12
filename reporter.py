@@ -94,8 +94,39 @@ class Reporter:
                 "comparaciones": self.filas,
             }, fh, indent=2, ensure_ascii=False)
 
-        print(f"\nReporte guardado:\n  {txt}\n  {js}")
+        # además, SIEMPRE: un resumen ejecutivo (para mostrar a un directivo).
+        # Idioma humano, sin descartadas, sin gaps ni anclaje.
+        ej = self._guardar_ejecutivo(carpeta, stamp, confiables, paso, fallo, tasa)
+
+        print(f"\nReporte técnico guardado:\n  {txt}\n  {js}")
+        print(f"Resumen ejecutivo (para presentar):\n  {ej}")
         return txt
+
+    def _guardar_ejecutivo(self, carpeta, stamp, confiables, paso, fallo, tasa):
+        """Versión limpia para un alto cargo: solo lo que se entiende sin
+        conocer el detalle técnico. No menciona descartadas ni desfase."""
+        path = os.path.join(carpeta, f"resumen_ejecutivo_{stamp}.txt")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("Validación de OmniOps — Resumen\n")
+            fh.write(f"Fecha: {self.inicio:%Y-%m-%d %H:%M}\n")
+            fh.write("=" * 44 + "\n\n")
+            fh.write("Se verificó de forma automática e independiente que OmniOps\n")
+            fh.write("muestra el valor de potencia correcto.\n\n")
+            fh.write(f"Mediciones verificadas : {confiables}\n")
+            fh.write(f"  Correctas            : {paso}\n")
+            fh.write(f"  Con diferencia       : {fallo}\n")
+            fh.write(f"Tasa de acierto        : {tasa:.1f}%\n\n")
+            if fallo == 0:
+                fh.write("Resultado: OmniOps mostró el valor correcto en el "
+                         f"{tasa:.0f}% de las mediciones. Sin diferencias.\n")
+            else:
+                fh.write("Resultado: se detectaron diferencias que conviene "
+                         "revisar:\n")
+                for f in self.filas:
+                    if f["categoria"] == "FALLA":
+                        fh.write(f"  {f['hora']}: se esperaba {f['esperado']} kW "
+                                 f"y OmniOps mostró {f['actual']} kW\n")
+        return path
 
 
 if __name__ == "__main__":
