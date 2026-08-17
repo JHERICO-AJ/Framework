@@ -94,8 +94,40 @@ class Reporter:
                 "comparaciones": self.filas,
             }, fh, indent=2, ensure_ascii=False)
 
-        print(f"\nReporte guardado:\n  {txt}\n  {js}")
+        # además, SIEMPRE: un resumen ejecutivo (para mostrar a un directivo).
+        # Idioma humano, sin descartadas, sin gaps ni anclaje.
+        ej = self._guardar_ejecutivo(carpeta, stamp, confiables, paso, fallo, tasa)
+
+        print(f"\nReporte técnico guardado:\n  {txt}\n  {js}")
+        print(f"Resumen ejecutivo (para presentar):\n  {ej}")
         return txt
+
+    def _guardar_ejecutivo(self, carpeta, stamp, confiables, paso, fallo, tasa):
+        """Resumen limpio y EN INGLÉS para un alto cargo. No menciona
+        descartadas ni desfase. El técnico (en español) queda para nosotros."""
+        path = os.path.join(carpeta, f"executive_summary_{stamp}.txt")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("OmniOps Validation — Executive Summary\n")
+            fh.write(f"Date: {self.inicio:%Y-%m-%d %H:%M}\n")
+            fh.write("=" * 44 + "\n\n")
+            fh.write("Automated, independent verification that OmniOps\n")
+            fh.write("displays the correct power value.\n\n")
+            fh.write(f"Measurements verified : {confiables}\n")
+            fh.write(f"  Passed              : {paso}\n")
+            fh.write(f"  Failed              : {fallo}\n")
+            fh.write(f"Pass rate             : {tasa:.1f}%\n\n")
+            if fallo == 0:
+                fh.write("Overall result: PASS\n")
+                fh.write(f"OmniOps showed the correct value in {tasa:.0f}% of "
+                         "measurements. No differences.\n")
+            else:
+                fh.write("Overall result: FAIL\n")
+                fh.write("Differences detected (to review):\n")
+                for f in self.filas:
+                    if f["categoria"] == "FALLA":
+                        fh.write(f"  {f['hora']}: expected {f['esperado']} kW, "
+                                 f"OmniOps showed {f['actual']} kW\n")
+        return path
 
 
 if __name__ == "__main__":

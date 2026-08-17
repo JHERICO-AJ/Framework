@@ -9,7 +9,8 @@ Compara los dos y muestra la razón entre ellos. Si OmniOps usara el agregado co
 el bug de escala documentado (§10), la razón daría ~1000 (o ~0.001). Si usa el
 camino bueno, la razón da ~1.
 
-SOLO LEE. Necesita: pymodbus (pip install pymodbus) y el simulador corriendo.
+La lectura del simulador vive ahora en source_modbus.py (fuente única).
+SOLO LEE. Necesita: pymodbus y el simulador corriendo.
 
 Correr:            python compare_pcs_power.py
 Probar la lógica:  python compare_pcs_power.py --self-check
@@ -17,60 +18,9 @@ Probar la lógica:  python compare_pcs_power.py --self-check
 
 import sys
 
-from auth import make_auth
-from check_pcs_power import BASE_URL, SUMMARY_PATH
-
-# --- config del simulador --------------------------------------------------
-SIM_HOST, SIM_PORT, UNIT = "127.0.0.1", 5020, 1
-# registros de potencia W por PCS en el Model 103 (valor, scale factor)
-PCS_W_REGS = [(17014, 17015), (17114, 17115), (17214, 17215)]
-
-# tolerancia del primer test (floja a propósito: la potencia oscila y el
-# simulador y OmniOps se leen con segundos de diferencia; esto igual caza
-# errores gruesos como el de escala 1000x).
-TOL_ABS_KW = 50.0
-TOL_REL = 0.02
-
-
-def signed16(raw):
-    return raw - 65536 if raw > 32767 else raw
-
-
-def w_to_kw(raw, sf):
-    """potencia de un PCS en kW = raw_con_signo * 10^sf / 1000 (W -> kW)."""
-    return signed16(raw) * (10 ** signed16(sf)) / 1000.0
-
-
-def read_sim_total_kw():
-    """Suma la potencia de los 3 PCS leyendo el simulador por Modbus."""
-    from pymodbus.client import ModbusTcpClient
-
-    def _read(client, addr, count):
-        # pymodbus nuevo usa device_id=; el viejo usa slave=
-        try:
-            return client.read_holding_registers(addr, count=count, device_id=UNIT)
-        except TypeError:
-            return client.read_holding_registers(addr, count=count, slave=UNIT)
-
-    client = ModbusTcpClient(SIM_HOST, port=SIM_PORT)
-    if not client.connect():
-        raise ConnectionError(f"no pude conectar al simulador {SIM_HOST}:{SIM_PORT} "
-                              "(¿está corriendo bess_modbus_simulator.py?)")
-    try:
-        total = 0.0
-        detalle = []
-        for w_addr, sf_addr in PCS_W_REGS:
-            rr = _read(client, w_addr, 2)
-            if rr.isError():
-                raise IOError(f"error leyendo registro {w_addr}")
-            raw = rr.registers[0]
-            sf = _read(client, sf_addr, 1).registers[0]
-            kw = w_to_kw(raw, sf)
-            total += kw
-            detalle.append((w_addr, kw))
-        return total, detalle
-    finally:
-        client.close()
+from core.auth import make_auth
+from config import BASE_URL, SUMMARY_PATH, TOL_ABS_KW, TOL_REL
+from core.source_modbus import signed16, w_to_kw, read_sim_total_kw
 
 
 def compare(expected_kw, actual_kw):

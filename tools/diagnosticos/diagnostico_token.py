@@ -13,7 +13,7 @@ import re
 import time
 
 from playwright.sync_api import sync_playwright
-from ui_reader import _load_creds, LOGIN_URL, MONITORING_URL
+from ui.ui_reader import _load_creds, LOGIN_URL, MONITORING_URL
 
 PISTAS = ("token", "jwt", "auth", "bearer", "access", "session")
 

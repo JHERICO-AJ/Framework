@@ -9,7 +9,7 @@ Correr:  python diagnostico_signalr.py
 
 import time
 
-from ui_reader import UiSession
+from ui.ui_reader import UiSession
 
 DURACION_S = 20
 

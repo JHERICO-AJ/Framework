@@ -14,7 +14,7 @@ Correr:  python diagnostico_websocket.py
 import time
 
 from playwright.sync_api import sync_playwright
-from ui_reader import _load_creds, LOGIN_URL, MONITORING_URL
+from ui.ui_reader import _load_creds, LOGIN_URL, MONITORING_URL
 
 eventos = {"ws": [], "console_err": [], "req_fail": []}
 

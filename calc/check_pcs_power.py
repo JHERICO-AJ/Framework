@@ -19,12 +19,8 @@ Probar la lógica sin OmniOps:  python check_pcs_power.py --self-check
 
 import sys
 
-from auth import make_auth
-
-BASE_URL = "http://localhost:5173"
-SUMMARY_PATH = "/api/monitoring/summary/10000000-0000-0000-0000-000000000001"
-POWER_MIN_KW = -50000
-POWER_MAX_KW = 50000
+from core.auth import make_auth
+from config import BASE_URL, SUMMARY_PATH, POWER_MIN_KW, POWER_MAX_KW
 
 
 def normal_freshness(reported: str) -> bool:

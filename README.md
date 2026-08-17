@@ -1,5 +1,11 @@
 # Framework de validación de OmniOps
 
+> **¿Recién llegás?** Empezá por **[`ESTRUCTURA.md`](ESTRUCTURA.md)**: tiene el
+> mapa de carpetas ("dónde está cada cosa"), la regla para ubicar algo nuevo y
+> los comandos para correr todo. El proyecto está organizado en paquetes
+> (`core/`, `calc/`, `alarms/`, `ui/`, `monitors/`, `tests/`, `tools/`), así que
+> los scripts se corren con `python -m paquete.modulo` desde la raíz.
+
 Valida, **en tiempo real**, que OmniOps calcula bien la telemetría del BESS y que
 la muestra bien en pantalla. Compara de forma independiente el dato crudo del
 **simulador** contra lo que produce OmniOps, en **tres capas**:
@@ -152,6 +158,38 @@ En la cabecera de los archivos:
   real (SignalR / WebSocket) recibe `401` porque el token de acceso vence rápido
   (~3 min) y tropieza en cada renovación. Efecto: el dashboard puede quedar sin
   actualizarse solo. Es tema del backend/front de OmniOps, no del framework.
+
+## 12. Estructura — dónde está cada cosa
+
+El proyecto está organizado en paquetes (`core/`, `calc/`, `alarms/`, `ui/`,
+`monitors/`, `tests/`, `tools/`, `docs/`). El mapa completo, la regla para
+ubicar algo nuevo y los comandos para correr todo están en **[`ESTRUCTURA.md`](ESTRUCTURA.md)**.
+
+Regla rápida: **¿selector de UI?** → `ui/pages/`. **¿número de config?** →
+`config.py`. **¿leer el simulador?** → `core/source_modbus.py`. **¿una alarma?**
+→ `alarms/catalog.py`. **¿una prueba nueva?** → `tests/test_*.py`.
+
+## 11. Modo presentación (para mostrar a un alto cargo)
+
+La categoría **descartada** (desfase de tiempo) te sirve *a vos* para saber que
+el anclaje funciona, pero a un directivo lo confunde. Por eso:
+
+- **Reporte ejecutivo:** los monitores (`watch_compare_anchored.py` y
+  `watch_3capas.py`) generan **siempre**, además del reporte técnico, un
+  `executive_summary_*.txt` **en inglés** y con **PASS / FAIL**: solo mediciones
+  verificadas, passed / failed y **pass rate**. No menciona descartadas ni
+  desfase. Es el que mostrás; no hay que acordarse de activar nada.
+
+- **Terminal en vivo:** si vas a hacer una demo en vivo, corré con `--limpio`:
+
+  ```bash
+  python watch_compare_anchored.py --limpio
+  python watch_3capas.py --limpio
+  ```
+
+  En limpio las líneas van en idioma humano (`OmniOps calcula correcto ✓`) y las
+  mediciones descartadas por desfase se ven como `· midiendo…` (muestra que está
+  trabajando, no como un error). Sin `--limpio`, ves todo el detalle como siempre.
 
 ## 10. Próximos pasos posibles
 
