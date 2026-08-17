@@ -9,3 +9,6 @@ __pycache__/
 
 # --- salidas generadas ---
 reportes/
+
+# catálogo real de alarmas (puede tener datos internos del SPEC90)
+alarms_catalog.py

@@ -1,5 +1,11 @@
 # Framework de validación de OmniOps
 
+> **¿Recién llegás?** Empezá por **[`ESTRUCTURA.md`](ESTRUCTURA.md)**: tiene el
+> mapa de carpetas ("dónde está cada cosa"), la regla para ubicar algo nuevo y
+> los comandos para correr todo. El proyecto está organizado en paquetes
+> (`core/`, `calc/`, `alarms/`, `ui/`, `monitors/`, `tests/`, `tools/`), así que
+> los scripts se corren con `python -m paquete.modulo` desde la raíz.
+
 Valida, **en tiempo real**, que OmniOps calcula bien la telemetría del BESS y que
 la muestra bien en pantalla. Compara de forma independiente el dato crudo del
 **simulador** contra lo que produce OmniOps, en **tres capas**:
@@ -153,46 +159,15 @@ En la cabecera de los archivos:
   (~3 min) y tropieza en cada renovación. Efecto: el dashboard puede quedar sin
   actualizarse solo. Es tema del backend/front de OmniOps, no del framework.
 
-## 12. Estructura — dónde está cada cosa (post-refactor)
+## 12. Estructura — dónde está cada cosa
 
-Tras el refactor (POM + DRY), cada responsabilidad vive en un solo lugar:
+El proyecto está organizado en paquetes (`core/`, `calc/`, `alarms/`, `ui/`,
+`monitors/`, `tests/`, `tools/`, `docs/`). El mapa completo, la regla para
+ubicar algo nuevo y los comandos para correr todo están en **[`ESTRUCTURA.md`](ESTRUCTURA.md)**.
 
-```
-config.py          TODA la configuración (URLs, puertos, intervalos, tolerancias,
-                   umbrales de gap). Si cambia el entorno, se toca SOLO acá.
-
-Fuentes de datos
-  auth.py          login + token (portero de la API)
-  source_modbus.py ÚNICA lectura del simulador (signed16, read_sim_total_kw,
-                   LectorModbus/LectorFalso). Acá se enchufa otro simulador.
-  omniops_time.py  parseo de tiempo de OmniOps (parse_epoch)
-  timeanchor.py    anclaje por tiempo (match_buffer, podar)
-
-Capa CÁLCULO
-  check_pcs_power.py    smoke test de la API
-  compare_pcs_power.py  oráculo sim vs API (compare, report)
-
-Capa PANTALLA (POM)
-  pages/base_page.py        común (¿en login?, esperar carga)
-  pages/login_page.py       selectores del login + login()
-  pages/monitoring_page.py  device-card, metric-value, tabla de alarmas + parse_kw
-  ui_reader.py              fachada: abre navegador, compone las pages, read()
-
-Alarmas
-  alarms_api.py      lee alarmas de la API
-  alarms_oracle.py   oráculo de causa (bit/umbral) usando source_modbus
-  verdict.py         el juez de 4 casos
-  watch_alarms.py    monitor de alarmas
-  alarms_catalog.example.py  plantilla del catálogo
-
-Monitores / reportes
-  watch_compare_anchored.py  cálculo en vivo (sim vs API)
-  watch_3capas.py            3 capas en vivo (cálculo + pantalla)
-  reporter.py                reportes (técnico + executive_summary)
-```
-
-Regla para ubicar algo: **¿es un selector de UI?** → la page correspondiente.
-**¿un número de config?** → `config.py`. **¿leer el simulador?** → `source_modbus.py`.
+Regla rápida: **¿selector de UI?** → `ui/pages/`. **¿número de config?** →
+`config.py`. **¿leer el simulador?** → `core/source_modbus.py`. **¿una alarma?**
+→ `alarms/catalog.py`. **¿una prueba nueva?** → `tests/test_*.py`.
 
 ## 11. Modo presentación (para mostrar a un alto cargo)
 
