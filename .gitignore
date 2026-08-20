@@ -1,14 +1,15 @@
-# --- NUNCA subir credenciales ---
+# Credentials — never commit
+.env
 omniops_login.txt
 omniops_cookie.txt
 
-# --- entorno y temporales ---
-venv/
+# Python
 __pycache__/
 *.pyc
+venv/
+.venv/
 
-# --- salidas generadas ---
-reportes/
-
-# catálogo real de alarmas (puede tener datos internos del SPEC90)
-alarms_catalog.py
+# Test / runtime artifacts
+.pytest_cache/
+reports/
+inject_state.json

@@ -27,7 +27,7 @@ import subprocess
 import sys
 import time
 
-from config import (SIM_HOST, SIM_PORT, SITE_ID,
+from shared.config.settings import (SIM_HOST, SIM_PORT, SITE_ID,
                     SIM_REPO_DIR, SIM_LAUNCH_CMD, SIM_TICK_S)
 
 

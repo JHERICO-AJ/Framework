@@ -1,10 +1,7 @@
-# Dependencias del framework de validación OmniOps.
-# Instalar con:  pip install -r requirements.txt
-#
-# Todo lo demás (leer la API, login, comparar) usa la librería estándar de Python.
+# Runtime + testing dependencies for the OmniOps QA framework.
+# Install:  pip install -r requirements.txt
 
-pymodbus>=3.6      # leer el simulador BESS por Modbus (capa cálculo)
-playwright>=1.44   # leer la pantalla/UI con un navegador real (capa pantalla)
-
-# IMPORTANTE: después de instalar, correr UNA vez para bajar el navegador:
-#     playwright install chromium
+pymodbus==3.7.4        # MUST match the simulator's version (3.14 breaks ModbusSlaveContext)
+playwright>=1.40       # UI layer (run also: playwright install chromium)
+pytest>=8.0            # test runner
+pytest-html>=4.1       # HTML reports (pytest --html=reports/report.html)

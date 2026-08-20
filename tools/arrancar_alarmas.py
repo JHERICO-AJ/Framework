@@ -21,11 +21,14 @@ import sys
 import threading
 import time
 
-from config import (SIM_HOST, SIM_PORT, SIM_REAL_HOST, SIM_REAL_PORT, SIM_TICK_S,
-                    SIM_REPO_DIR, SIM_SCRIPT, EDGE_SCRIPT, EDGE_CONFIG)
+from shared.config.settings import (SIM_HOST, SIM_PORT, SIM_REAL_HOST, SIM_REAL_PORT, SIM_TICK_S,
+                    SIM_REPO_DIR, SIM_SCRIPT, EDGE_SCRIPT, EDGE_CONFIG, EDGE_PYTHON)
 from tools.sim_launcher import puerto_abierto, esperar_puerto
 
 procesos = []       # [(nombre, Popen)]
+
+# el sim y el edge se corren con el Python del repo del edge (tiene sus deps)
+PY = EDGE_PYTHON if os.path.exists(EDGE_PYTHON) else sys.executable
 
 
 def _lanzar(nombre, cmd, cwd, env=None):
@@ -65,7 +68,7 @@ def main():
             print(f"Ya hay algo escuchando en {SIM_REAL_PORT}; no levanto el sim de nuevo.")
         else:
             _lanzar(f"simulador ({SIM_REAL_PORT})",
-                    [sys.executable, SIM_SCRIPT, SIM_REAL_HOST,
+                    [PY, SIM_SCRIPT, SIM_REAL_HOST,
                      str(SIM_REAL_PORT), str(SIM_TICK_S)], cwd=SIM_REPO_DIR)
             if not esperar_puerto(SIM_REAL_HOST, SIM_REAL_PORT, timeout=30):
                 print("El simulador no abrió el 5021.")
@@ -85,7 +88,7 @@ def main():
         env["MODBUS_HOST"] = SIM_HOST
         env["MODBUS_PORT"] = str(SIM_PORT)
         _lanzar(f"edge (MODBUS_PORT={SIM_PORT})",
-                [sys.executable, EDGE_SCRIPT, EDGE_CONFIG],
+                [PY, EDGE_SCRIPT, EDGE_CONFIG],
                 cwd=SIM_REPO_DIR, env=env)
 
         print("\n Todo arriba:  sim(5021) → proxy(5020) → edge → OmniOps")

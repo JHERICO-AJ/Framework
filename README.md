@@ -1,198 +1,162 @@
-# Framework de validación de OmniOps
+# Framework de QA — OmniOps
 
-> **¿Recién llegás?** Empezá por **[`ESTRUCTURA.md`](ESTRUCTURA.md)**: tiene el
-> mapa de carpetas ("dónde está cada cosa"), la regla para ubicar algo nuevo y
-> los comandos para correr todo. El proyecto está organizado en paquetes
-> (`core/`, `calc/`, `alarms/`, `ui/`, `monitors/`, `tests/`, `tools/`), así que
-> los scripts se corren con `python -m paquete.modulo` desde la raíz.
+QA automatizado para la plataforma de monitoreo BESS **OmniOps**, basado en un
+**oráculo diferencial**: leemos el valor crudo del simulador Modbus de forma
+*independiente* y lo comparamos contra lo que OmniOps calcula (**API**) y muestra
+(**UI**). Para alarmas, además **inyectamos** condiciones a través de un proxy
+Modbus y verificamos que OmniOps genere la alarma esperada.
 
-Valida, **en tiempo real**, que OmniOps calcula bien la telemetría del BESS y que
-la muestra bien en pantalla. Compara de forma independiente el dato crudo del
-**simulador** contra lo que produce OmniOps, en **tres capas**:
-
-```
-  Simulador (Modbus)  --calcula-->  OmniOps API  --muestra-->  Pantalla (UI)
-        \___________ oráculo ___________/               \____ Playwright ___/
-                 CAPA CÁLCULO                              CAPA PANTALLA
-```
-
-- **Capa cálculo** (simulador → API): ¿OmniOps calcula bien la potencia? Sumamos
-  la potencia de los PCS desde el crudo y la comparamos contra `actualPcsPower`.
-- **Capa pantalla** (API → UI): ¿la UI muestra bien lo que la API calculó?
-  Leemos el número renderizado con un navegador real y lo comparamos contra la API.
-
-La métrica validada hoy es la **potencia total de PCS** (`actualPcsPower`).
+El simulador solo expone **telemetría cruda** (temperaturas, tensiones, bits).
+OmniOps es el sistema bajo prueba: convierte esa telemetría en cálculos y
+alarmas. Este framework verifica que lo haga bien.
 
 ---
 
-## 1. Requisitos
+## Arquitectura (5 capas)
 
-- **Python 3.11 o más nuevo** (probado en 3.14).
-- El **simulador BESS** corriendo (proyecto `omniops-bess-edge`).
-- **OmniOps** corriendo en local (frontend en `http://localhost:5173`).
-- Una cuenta de OmniOps de **email/contraseña** (para el login automático).
+Cada capa tiene una sola responsabilidad. Las dependencias apuntan hacia abajo:
+tests y monitores usan todo; `framework_api` / `framework_ui` / `domain` usan
+`shared`; `shared` no depende de nada salvo `config`.
 
-## 2. Instalación
+```
+config (settings)                        un solo lugar: URLs, puertos, tolerancias
+   └── shared/        fundaciones: auth, credenciales, fuente Modbus, domain, utils
+        ├── framework_api/   capa API (SOM): ApiClient + services + models
+        ├── framework_ui/    capa UI (POM): browser factory + pages + locators
+        └── domain/          lógica pura: qué DEBERÍA pasar (oráculo, reglas)
+             └── tests/       las pruebas (el assert vive acá) + monitors/ (vista en vivo)
+```
 
-Desde una terminal, dentro de esta carpeta:
+| Capa | Carpeta | Responsabilidad |
+|------|---------|-----------------|
+| Config | `shared/config/` | `settings.py` (config central) + `credentials.py` (.env) |
+| Core | `shared/` | auth, fuente Modbus, utilidades de tiempo, logger |
+| Domain | `shared/domain/` | lógica pura: catálogo de alarmas, oráculo, verdict, inyección, potencia |
+| API | `framework_api/` | `ApiClient` (transporte) + `services/` + `models/` (dataclasses) |
+| UI | `framework_ui/` | `BrowserFactory` + `pages/` (page objects) + locators al lado de cada page |
+| Tests | `tests/` | `api/`, `ui/`, `cross_layer/` — el assert vive acá |
+| Monitores | `monitors/` | observadores en vivo (bucle, para demo/debug) — observan, no afirman |
+| Tools | `tools/` | proxy, launcher, `probar` (CLI de inyección), sniffer, diagnósticos |
+
+---
+
+## Instalación
 
 ```bash
-# (opcional pero recomendado) entorno aislado
+# 1. Entorno virtual
 python -m venv venv
-venv\Scripts\activate            # Windows
-# source venv/bin/activate       # Mac / Linux
+venv\Scripts\Activate.ps1          # Windows PowerShell
+# source venv/bin/activate         # Linux / macOS
 
-# instalar dependencias
+# 2. Dependencias
 pip install -r requirements.txt
+playwright install chromium         # navegador para la capa UI
 
-# bajar el navegador que usa Playwright (una sola vez, tarda unos minutos)
-playwright install chromium
+# 3. Credenciales  (nunca subir el .env)
+copy .env.example .env              # Windows  (cp en Linux/macOS)
+# editá .env y poné OMNIOPS_EMAIL y OMNIOPS_PASSWORD
 ```
 
-## 3. Credenciales (una sola vez)
+El repo del simulador (`omniops-bess-edge`) tiene que estar **al lado** de este
+proyecto (misma carpeta padre). Si está en otro lado, ajustá `SIM_REPO_DIR` en
+`shared/config/settings.py`.
 
-El login es automático, pero necesita tus datos. Copiá el archivo de ejemplo:
+---
 
-```
-omniops_login.example.txt   ->   omniops_login.txt
-```
-
-y editá `omniops_login.txt` con tu cuenta:
-
-```
-email=tu_correo@omniops.com
-password=tu_clave
-```
-
-> ⚠️ **`omniops_login.txt` NUNCA se sube** (tiene tu contraseña). Ya está en el
-> `.gitignore`. No lo compartas.
-
-## 4. Cómo correr las pruebas
-
-Antes de cualquier prueba: **prendé el simulador** (en su propia terminal) y
-**OmniOps**.
+## Correr las pruebas
 
 ```bash
-# terminal del simulador (dejar corriendo)
-py .\utils\launch_site.py 10000000-0000-0000-0000-000000000001 5020 7
+# Offline (sin stack): los unit tests pasan, los de stack se saltan
+pytest -v
+
+# En vivo (necesita el stack + OmniOps): el diferencial entre capas
+pytest tests/cross_layer -v
+
+# Reporte HTML (verde/rojo de cada prueba, para compartir o guardar)
+pytest --html=reports/report.html --self-contained-html
 ```
 
-Hay tres formas de correr, de la más simple a la más completa:
+Grupos de pruebas (markers): `api`, `ui`, `cross_layer`.
 
-### a) Comparación puntual (simulador vs API)
-Una sola comparación, para probar la conexión.
 ```bash
-python compare_pcs_power.py
+pytest -m api          # solo API (rápidas, sin navegador)
+pytest -m cross_layer  # simulador vs API vs UI
 ```
 
-### b) Monitor en vivo de CÁLCULO (simulador vs API) — sin navegador
-Valida el cálculo en tiempo real, anclado por tiempo, y guarda reporte.
-Es liviano: **no necesita Playwright**.
+El **reporte** muestra, por cada prueba, si pasó o falló, con el detalle y —si
+falló— el error. Se regenera en cada corrida con `--html=...`.
+
+---
+
+## Inyección de alarmas
+
+Dos comandos. Docker + OmniOps tienen que estar prendidos aparte.
+
 ```bash
-python watch_compare_anchored.py
+python -m tools.arrancar_alarmas          # levanta simulador(5021) + proxy(5020) + edge
+python -m tools.probar 16 --vivo          # inyecta la alarma 16, verifica (causa + API + hora) y limpia
+python -m tools.probar 16 --at 10 --hasta 30 --vivo   # escena temporal
 ```
 
-### c) Monitor en vivo de las TRES CAPAS (cálculo + pantalla)
-Lo completo: valida cálculo y pantalla a la vez. **Necesita Playwright.**
+Flujo de datos: `simulador (5021) -> proxy (5020) -> edge -> Event Hub -> OmniOps`.
+El proxy inyecta la condición en el stream Modbus; OmniOps debe entonces generar
+la alarma. Los timestamps de OmniOps vienen en **UTC**; el framework compara en
+UTC y muestra en hora local.
+
+---
+
+## Monitores en vivo (observan, no afirman)
+
 ```bash
-python watch_3capas.py
+python -m monitors.watch_power           # simulador vs API (potencia)
+python -m monitors.watch_three_layers    # simulador vs API vs UI
+python -m monitors.watch_alarms          # alarmas en vivo (inyectás desde otra terminal)
 ```
 
-En todos: **Ctrl+C** para parar. Los monitores dejan un reporte en `reportes/`.
+---
 
-## 5. Cómo leer los resultados
+## ¿Dónde pongo cada cosa?
 
-Cada línea del monitor muestra el veredicto por capa:
-
-```
-[20:31:20]  cálculo:PASA   pantalla:PASA    (api=  2486.0  ui=2486.0 kW)
-```
-
-- **cálculo:PASA** → OmniOps calculó bien (coincide con el oráculo).
-- **pantalla:PASA** → la UI muestra bien lo que la API calculó.
-- **descartada** → no se pudo comparar de forma confiable (desfase de tiempo);
-  no cuenta como error.
-- **FALLA** → no coincidió *y* la medición fue confiable → **revisar, posible bug**.
-
-El primer eslabón que falla te dice *dónde* está el problema: si falla `cálculo`
-es el backend; si falla `pantalla` es el front.
-
-## 6. Qué hace cada archivo
-
-| Archivo | Qué es / qué valida |
+| Lo que tenés | Va en |
 |---|---|
-| `auth.py` | Login automático a OmniOps. Renueva el token solo. Dos modos: email/contraseña (token) y cookie (Microsoft). |
-| `check_pcs_power.py` | Lee la API y chequea que `actualPcsPower` esté presente, en rango y fresco. Provee la URL y utilidades a los demás. |
-| `compare_pcs_power.py` | El **oráculo**: lee el simulador por Modbus, suma la potencia de los 3 PCS, y la compara contra la API. Es la capa cálculo. |
-| `ui_reader.py` | Lee el número renderizado en la pantalla con Playwright (login incluido). Es la capa pantalla. |
-| `reporter.py` | Guarda el reporte de cada corrida (`.txt` + `.json`) con 3 categorías: PASA / FALLA / descartada. |
-| `watch_compare_anchored.py` | Monitor en vivo de **cálculo** (sim vs API), anclado por tiempo + reporte. |
-| `watch_3capas.py` | Monitor en vivo de las **3 capas** (cálculo + pantalla). El más completo. |
-| `omniops_login.example.txt` | Plantilla de credenciales. Copiar a `omniops_login.txt`. |
-| `omniops_cookie.example.txt` | Plantilla para el modo cookie/Microsoft (opcional). |
-| `diagnosticos/` | Herramientas de investigación puntual (no forman parte del monitor). |
+| Un selector de UI | `framework_ui/pages/<módulo>/*_locators.py` |
+| Una acción/lectura de UI | `framework_ui/pages/<módulo>/*_page.py` |
+| Un componente reutilizable (tabla, tarjeta) | `framework_ui/pages/<módulo>/components/` |
+| Una llamada HTTP cruda | `framework_api/services/` (vía `ApiClient`) |
+| Un modelo del JSON | `framework_api/models/` (dataclass con `from_json`) |
+| Lógica de negocio / "valor esperado" | `shared/domain/` |
+| Un valor de config (URL, puerto, umbral) | `shared/config/settings.py` |
+| Una verificación (verde/rojo) | `tests/` (el assert acá) |
+| Un monitor en vivo | `monitors/` |
+| Un script de investigación | `tools/` |
 
-## 7. Ajustes que podés cambiar
+Regla práctica: si algo necesita que el sistema le responda, no es `domain`. Si
+cruza capas (simulador + API, o API + UI), es `cross_layer` (un test) o un
+comando de `tools/`. La capa API nunca debe saber de Modbus.
 
-En la cabecera de los archivos:
+---
 
-- `compare_pcs_power.py`: `TOL_ABS_KW` y `TOL_REL` — qué tan exigente es la
-  comparación (hoy 50 kW / 2%). `SIM_HOST`, `SIM_PORT` — dónde está el simulador.
-- `watch_*.py`: `OMNIOPS_EVERY_S` — cada cuánto pregunta a la API (subilo si
-  aparece el error `429 Too Many Requests`). `MATCH_MAX_GAP_S` — cuán estricto es
-  el anclaje por tiempo.
-- `watch_3capas.py`: `HEADLESS` — `True` navegador oculto (normal), `False` visible.
+## Self-checks offline
 
-## 8. Los dos logins
+La mayoría de los módulos de dominio validan su propia lógica sin el stack:
 
-- **Email/contraseña** (recomendado, automático): creá `omniops_login.txt`.
-- **Cookie / Microsoft**: creá `omniops_cookie.txt` con la cookie del navegador.
-  `auth.py` detecta solo cuál archivo existe y usa ese modo.
+```bash
+python -m shared.domain.oracle --self-check
+python -m shared.domain.verdict --self-check
+python -m shared.domain.injection --self-check
+python -m shared.domain.power --self-check
+python -m tools.sim_proxy --self-check
+```
 
-## 9. Limitación conocida y hallazgo
+---
 
-- **UI en modo recargar:** la capa pantalla recarga la página antes de leer, en
-  vez de esperar la actualización en vivo de SignalR. Valida el dato igual de bien;
-  solo es un poco más lento.
-- **Hallazgo de QA:** en un navegador nuevo/automatizado, la conexión de tiempo
-  real (SignalR / WebSocket) recibe `401` porque el token de acceso vence rápido
-  (~3 min) y tropieza en cada renovación. Efecto: el dashboard puede quedar sin
-  actualizarse solo. Es tema del backend/front de OmniOps, no del framework.
+## Notas
 
-## 12. Estructura — dónde está cada cosa
-
-El proyecto está organizado en paquetes (`core/`, `calc/`, `alarms/`, `ui/`,
-`monitors/`, `tests/`, `tools/`, `docs/`). El mapa completo, la regla para
-ubicar algo nuevo y los comandos para correr todo están en **[`ESTRUCTURA.md`](ESTRUCTURA.md)**.
-
-Regla rápida: **¿selector de UI?** → `ui/pages/`. **¿número de config?** →
-`config.py`. **¿leer el simulador?** → `core/source_modbus.py`. **¿una alarma?**
-→ `alarms/catalog.py`. **¿una prueba nueva?** → `tests/test_*.py`.
-
-## 11. Modo presentación (para mostrar a un alto cargo)
-
-La categoría **descartada** (desfase de tiempo) te sirve *a vos* para saber que
-el anclaje funciona, pero a un directivo lo confunde. Por eso:
-
-- **Reporte ejecutivo:** los monitores (`watch_compare_anchored.py` y
-  `watch_3capas.py`) generan **siempre**, además del reporte técnico, un
-  `executive_summary_*.txt` **en inglés** y con **PASS / FAIL**: solo mediciones
-  verificadas, passed / failed y **pass rate**. No menciona descartadas ni
-  desfase. Es el que mostrás; no hay que acordarse de activar nada.
-
-- **Terminal en vivo:** si vas a hacer una demo en vivo, corré con `--limpio`:
-
-  ```bash
-  python watch_compare_anchored.py --limpio
-  python watch_3capas.py --limpio
-  ```
-
-  En limpio las líneas van en idioma humano (`OmniOps calcula correcto ✓`) y las
-  mediciones descartadas por desfase se ven como `· midiendo…` (muestra que está
-  trabajando, no como un error). Sin `--limpio`, ves todo el detalle como siempre.
-
-## 10. Próximos pasos posibles
-
-- Validar más métricas (SoC, voltaje, temperatura): mismo patrón, otro registro.
-- Investigar por qué `cellVoltageDeltaMv` llega en `null`.
-- Que el WebSocket de SignalR sobreviva la renovación del token (backend).
+- `pymodbus` fijado en **3.7.4** — tiene que coincidir con el simulador. Las
+  versiones nuevas rompen `ModbusSlaveContext`.
+- El `.env` (credenciales reales) está en `.gitignore`; solo se sube `.env.example`.
+- **Cómo y por qué funciona (a fondo): ver `docs/COMO_FUNCIONA.md`** — explica el
+  oráculo diferencial, el proxy paso a paso, y los hallazgos de QA (OmniOps evalúa
+  por telemetría y no cierra alarmas). Lectura recomendada antes de tocar el código.
+- Ver `MIGRATION_STATUS.md` para el historial de migración y `ARQUITECTURA.md`
+  para el detalle de la arquitectura.

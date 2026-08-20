@@ -1,25 +1,17 @@
+"""sniff_alarms_api — descubre la API de alarmas capturando el tráfico de red.
+Abre /alarms logueado y vuelca las llamadas cuya URL menciona alarm/alert/events.
+Herramienta de investigación (tools/). No es un test.
+    python -m tools.sniff_alarms_api
 """
-sniff_alarms_api.py — descubrí QUÉ API de alarmas usa OmniOps, de verdad.
-
-Abre el dashboard logueado (reusa el POM) y escucha el tráfico de red: captura
-las llamadas cuya URL menciona "alarm" y vuelca la URL completa (con sus query
-params: SiteId, Status, FromDate/ToDate…) y el JSON de respuesta, para fijar los
-nombres reales de los campos (alarmRuleId, severity, subsystem, firstOccurred,
-lastOccurred, status…).
-
-Con esto después ajustamos check_alarms.py a los nombres exactos.
-
-SOLO ESCUCHA: no hace clics que cambien nada.
-
-Correr:  python sniff_alarms_api.py
-"""
-
 from __future__ import annotations
 
 import json
 import time
 
-from ui.ui_reader import UiSession
+from shared.config.settings import BASE_URL, ALARMS_UI_PATH
+from shared.config.credentials import load_credentials
+from framework_ui.browser.browser_factory import BrowserFactory
+from framework_ui.pages.auth.login_page import LoginPage
 
 
 def _interesa(url):
@@ -29,6 +21,9 @@ def _interesa(url):
 
 def sniff(segundos=8):
     capturas = []
+    creds = load_credentials()
+    factory = BrowserFactory(headless=False)
+    page = factory.__enter__()
 
     def on_response(resp):
         try:
@@ -42,34 +37,25 @@ def sniff(segundos=8):
         except Exception:
             pass
 
-    print("Abriendo dashboard y escuchando la red…")
-    ui = UiSession(headless=False)
-    ui.page.on("response", on_response)
     try:
-        ui.monitoring.recargar()      # forzar que el dashboard pida las alarmas
+        LoginPage(page).login(creds["email"], creds["password"])
+        page.on("response", on_response)
+        page.goto(BASE_URL + ALARMS_UI_PATH)
         time.sleep(segundos)
     finally:
-        ui.close()
+        factory.__exit__(None, None, None)
 
     if not capturas:
-        print("\nNo capté ninguna llamada con 'alarm'/'alert'/'/events/' en la URL.\n"
-              "¿La tabla de alarmas está visible en el dashboard? Probá subir el "
-              "tiempo de espera o abrir la vista de alarmas.")
+        print("No capté llamadas con alarm/alert/events. ¿La tabla estaba visible?")
         return
-
-    print(f"\nCapturé {len(capturas)} llamada(s):")
     for met, url, st, cuerpo in capturas:
         print("\n" + "=" * 70)
-        print(f"{met} {url}")
-        print(f"status: {st}")
+        print(f"{met} {url}\nstatus: {st}")
         if cuerpo:
             try:
-                data = json.loads(cuerpo)
-                muestra = json.dumps(data, indent=2, ensure_ascii=False)
-                print("json (recortado a 1800 chars):")
-                print(muestra[:1800])
+                print(json.dumps(json.loads(cuerpo), indent=2, ensure_ascii=False)[:1800])
             except Exception:
-                print("body (texto, recortado):", cuerpo[:600])
+                print(cuerpo[:600])
 
 
 if __name__ == "__main__":

@@ -34,8 +34,8 @@ from pymodbus.datastore import ModbusServerContext, ModbusSlaveContext
 from pymodbus.datastore.store import BaseModbusDataBlock
 from pymodbus.server import StartTcpServer
 
-from config import SIM_HOST, SIM_PORT, SIM_REAL_HOST, SIM_REAL_PORT, SIM_UNIT
-from alarms.inject import leer_estado
+from shared.config.settings import SIM_HOST, SIM_PORT, SIM_REAL_HOST, SIM_REAL_PORT, SIM_UNIT
+from shared.domain.injection import leer_estado
 
 
 class _UpstreamReader:
@@ -78,12 +78,15 @@ class ProxyBlock(BaseModbusDataBlock):
 
     def getValues(self, address, count=1):
         regs = self.upstream.leer(address, count)
-        pon, qui = leer_estado()        # estado de inyección FRESCO en cada lectura
-        if pon or qui:
+        pon, qui, rep = leer_estado()   # estado de inyección FRESCO en cada lectura
+        if pon or qui or rep:
             out = []
             for i, v in enumerate(regs):
                 reg = address + i
-                v = (v | pon.get(reg, 0)) & ~qui.get(reg, 0)
+                if reg in rep:
+                    v = rep[reg]                       # REPLACE (telemetría) gana
+                else:
+                    v = (v | pon.get(reg, 0)) & ~qui.get(reg, 0)
                 out.append(v & 0xFFFF)
             return out
         return regs
@@ -116,7 +119,7 @@ def _self_check():
     """Loopback real: levanta un 'sim' de mentira, el proxy delante, y lee a
     través del proxy — con y sin inyección."""
     from pymodbus.datastore import ModbusSequentialDataBlock
-    from alarms.inject import guardar_estado, limpiar_estado
+    from shared.domain.injection import guardar_estado, limpiar_estado
 
     print("(loopback: sim falso 5599 -> proxy 5598 -> cliente)\n")
     HR_BASE, PROXY_P, REAL_P = 10095, 5598, 5599
@@ -167,8 +170,16 @@ def _self_check():
     ok3 = vuelto == [0, 0]
     print(f"  tras --clear, HR {HR_BASE}..+1 -> {vuelto}  {'OK' if ok3 else 'MAL'}")
 
+    # inyectar telemetría (ID 16 Rack High Temp -> REPLACE HR 10173 = 30000)
+    guardar_estado([16])
+    tele = leer(10173, 1)
+    ok4 = tele == [30000]
+    print(f"  con inyección ID 16 (telemetría), HR 10173 -> {tele}  "
+          f"(esperado [30000])  {'OK' if ok4 else 'MAL'}")
+    limpiar_estado()
+
     cli.close()
-    todos = ok1 and ok2 and ok3
+    todos = ok1 and ok2 and ok3 and ok4
     print("\n=> " + ("PROXY OK ✓ (pasa el dato y aplica/quita la inyección)"
                      if todos else "MAL ✗"))
     return todos
