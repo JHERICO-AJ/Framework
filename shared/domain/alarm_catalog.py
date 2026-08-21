@@ -265,3 +265,31 @@ def verdict(expected, api_alarm, cause_present):
     if cause_present and not alarm_present:
         return ('FALLA', ['NO DETECTADA: causa presente sin alarma'])
     return ('PASA', ['sano'])
+
+
+# ---------------------------------------------------------------------------
+# Filters (select alarms by attribute). Pure domain, no network.
+# ---------------------------------------------------------------------------
+INJECTABLE_LAYERS = {"bit_802", "bit_e001", "bit_fire", "bit_pcsonline", "telemetry"}
+
+
+def is_injectable(rule_id):
+    """True if the alarm can be injected over Modbus (i.e. not ems/trend)."""
+    return BY_RULE_ID.get(rule_id, {}).get("layer") in INJECTABLE_LAYERS
+
+
+def rule_ids_by_severity(severity, injectable_only=True):
+    """rule_ids with that severity (e.g. 'Critical'). Injectable-only by default."""
+    s = (severity or "").lower()
+    return sorted(a["alarm_rule_id"] for a in ALARMS
+                  if (a.get("severity", "").lower() == s)
+                  and (not injectable_only or a["layer"] in INJECTABLE_LAYERS))
+
+
+def rule_ids_by_subsystem(text, injectable_only=True):
+    """rule_ids whose subsystem (API or UI) contains `text`. Injectable-only by default."""
+    t = (text or "").lower()
+    return sorted(a["alarm_rule_id"] for a in ALARMS
+                  if (t in a.get("subsystem_api", "").lower()
+                      or t in a.get("subsystem_ui", "").lower())
+                  and (not injectable_only or a["layer"] in INJECTABLE_LAYERS))

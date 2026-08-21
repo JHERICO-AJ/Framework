@@ -3,10 +3,25 @@
 """
 from __future__ import annotations
 
+import datetime
+
 from dataclasses import dataclass
 
 from framework_ui.base.base_component import BaseComponent
 from framework_ui.pages.alarms_events.components import alarms_table_locators as loc
+
+
+def parse_ui_datetime(text):
+    """'18/08/2026, 09:46:03' (local time) -> naive local datetime, or None."""
+    if not text:
+        return None
+    t = text.strip()
+    for fmt in ("%d/%m/%Y, %H:%M:%S", "%d/%m/%Y %H:%M:%S"):
+        try:
+            return datetime.datetime.strptime(t, fmt)
+        except ValueError:
+            continue
+    return None
 
 
 @dataclass(frozen=True)
