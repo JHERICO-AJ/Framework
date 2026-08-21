@@ -1,144 +1,147 @@
-# Framework de QA — OmniOps
+# OmniOps QA Framework
 
-QA automatizado para la plataforma de monitoreo BESS **OmniOps**, basado en un
-**oráculo diferencial**: leemos el valor crudo del simulador Modbus de forma
-*independiente* y lo comparamos contra lo que OmniOps calcula (**API**) y muestra
-(**UI**). Para alarmas, además **inyectamos** condiciones a través de un proxy
-Modbus y verificamos que OmniOps genere la alarma esperada.
+Automated QA for the **OmniOps** BESS monitoring platform, based on a
+**differential oracle**: we read the raw value from the Modbus simulator
+*independently* and compare it against what OmniOps computes (**API**) and shows
+(**UI**). For alarms, we also **inject** conditions through a Modbus proxy and
+verify that OmniOps raises the expected alarm.
 
-El simulador solo expone **telemetría cruda** (temperaturas, tensiones, bits).
-OmniOps es el sistema bajo prueba: convierte esa telemetría en cálculos y
-alarmas. Este framework verifica que lo haga bien.
-
----
-
-## Arquitectura (5 capas)
-
-Cada capa tiene una sola responsabilidad. Las dependencias apuntan hacia abajo:
-tests y monitores usan todo; `framework_api` / `framework_ui` / `domain` usan
-`shared`; `shared` no depende de nada salvo `config`.
-
-```
-config (settings)                        un solo lugar: URLs, puertos, tolerancias
-   └── shared/        fundaciones: auth, credenciales, fuente Modbus, domain, utils
-        ├── framework_api/   capa API (SOM): ApiClient + services + models
-        ├── framework_ui/    capa UI (POM): browser factory + pages + locators
-        └── domain/          lógica pura: qué DEBERÍA pasar (oráculo, reglas)
-             └── tests/       las pruebas (el assert vive acá) + monitors/ (vista en vivo)
-```
-
-| Capa | Carpeta | Responsabilidad |
-|------|---------|-----------------|
-| Config | `shared/config/` | `settings.py` (config central) + `credentials.py` (.env) |
-| Core | `shared/` | auth, fuente Modbus, utilidades de tiempo, logger |
-| Domain | `shared/domain/` | lógica pura: catálogo de alarmas, oráculo, verdict, inyección, potencia |
-| API | `framework_api/` | `ApiClient` (transporte) + `services/` + `models/` (dataclasses) |
-| UI | `framework_ui/` | `BrowserFactory` + `pages/` (page objects) + locators al lado de cada page |
-| Tests | `tests/` | `api/`, `ui/`, `cross_layer/` — el assert vive acá |
-| Monitores | `monitors/` | observadores en vivo (bucle, para demo/debug) — observan, no afirman |
-| Tools | `tools/` | proxy, launcher, `probar` (CLI de inyección), sniffer, diagnósticos |
+The simulator only exposes **raw telemetry** (temperatures, voltages, bits).
+OmniOps is the system under test: it turns that telemetry into calculations and
+alarms. This framework checks that it does so correctly.
 
 ---
 
-## Instalación
+## Architecture (5 layers)
+
+Each layer has a single responsibility. Dependencies point downward: tests and
+monitors use everything; `framework_api` / `framework_ui` / `domain` use
+`shared`; `shared` depends on nothing but `config`.
+
+```
+config (settings)                        one place for URLs, ports, tolerances
+   └── shared/        foundations: auth, credentials, modbus source, domain, utils
+        ├── framework_api/   API layer (SOM): ApiClient + services + models
+        ├── framework_ui/    UI layer (POM): browser factory + pages + locators
+        └── domain/          pure logic: what SHOULD happen (oracle, rules)
+             └── tests/       the checks (assert lives here) + monitors/ (live view)
+```
+
+| Layer | Folder | Responsibility |
+|-------|--------|----------------|
+| Config | `shared/config/` | `settings.py` (central config) + `credentials.py` (.env) |
+| Core | `shared/` | auth, Modbus source, time utils, logger |
+| Domain | `shared/domain/` | pure logic: alarm catalog, oracle, verdict, injection, power |
+| API | `framework_api/` | `ApiClient` (transport) + `services/` + `models/` (dataclasses) |
+| UI | `framework_ui/` | `BrowserFactory` + `pages/` (page objects) + locators next to each page |
+| Tests | `tests/` | `api/`, `ui/`, `cross_layer/` — the assertions live here |
+| Monitors | `monitors/` | live watchers (loop, for demo/debug) — they observe, not assert |
+| Tools | `tools/` | proxy, launcher, `probar` (inject CLI), sniffer, diagnostics |
+
+**Where things go (rule of thumb).** If it only talks to the screen → `framework_ui`.
+If it only talks to the API → `framework_api`. If it **injects** into the simulator
+or **crosses layers** (simulator + API/UI) → `tools/` (a command) or `tests/cross_layer/`
+(a check). The UI and API layers never know about Modbus/injection. That is why
+`tools/probar.py` — which injects *and* verifies — lives in `tools/`, even though it
+reads the UI and the API: it imports from both layers, so it belongs to neither.
+
+---
+
+## Setup
 
 ```bash
-# 1. Entorno virtual
+# 1. Virtual environment
 python -m venv venv
 venv\Scripts\Activate.ps1          # Windows PowerShell
 # source venv/bin/activate         # Linux / macOS
 
-# 2. Dependencias
+# 2. Dependencies
 pip install -r requirements.txt
-playwright install chromium         # navegador para la capa UI
+playwright install chromium         # browser for the UI layer
 
-# 3. Credenciales  (nunca subir el .env)
-copy .env.example .env              # Windows  (cp en Linux/macOS)
-# editá .env y poné OMNIOPS_EMAIL y OMNIOPS_PASSWORD
+# 3. Credentials  (never commit the .env)
+copy .env.example .env              # Windows  (cp on Linux/macOS)
+# edit .env and set OMNIOPS_EMAIL and OMNIOPS_PASSWORD
 ```
 
-El repo del simulador (`omniops-bess-edge`) tiene que estar **al lado** de este
-proyecto (misma carpeta padre). Si está en otro lado, ajustá `SIM_REPO_DIR` en
+The simulator repo (`omniops-bess-edge`) must sit **next to** this project (same
+parent folder). If it lives elsewhere, adjust `SIM_REPO_DIR` in
 `shared/config/settings.py`.
 
 ---
 
-## Correr las pruebas
+## Running the tests
 
 ```bash
-# Offline (sin stack): los unit tests pasan, los de stack se saltan
+# Offline (no stack needed): unit tests pass, stack tests are skipped
 pytest -v
 
-# En vivo (necesita el stack + OmniOps): el diferencial entre capas
+# Live (requires the stack up + OmniOps): the differential across layers
 pytest tests/cross_layer -v
 
-# Reporte HTML (verde/rojo de cada prueba, para compartir o guardar)
+# HTML report (green/red evidence, shareable)
 pytest --html=reports/report.html --self-contained-html
 ```
 
-Grupos de pruebas (markers): `api`, `ui`, `cross_layer`.
+Test markers: `api`, `ui`, `cross_layer`.
+
+Key live tests (in `tests/cross_layer/`):
+- `test_power_three_layers` — power: simulator vs API vs UI.
+- `test_alarms` — inject alarm 16, verify OmniOps creates it (API).
+- `test_alarms_ui::test_injected_alarm_shows_on_screen` — inject 16, verify API + UI.
+- `test_alarms_ui::test_alarm_scene_end_to_end` — full timeline (see below).
+
+---
+
+## Alarm injection & verification
+
+Bring up the chain (Docker + OmniOps running separately):
 
 ```bash
-pytest -m api          # solo API (rápidas, sin navegador)
-pytest -m cross_layer  # simulador vs API vs UI
+python -m tools.arrancar_alarmas          # starts simulator(5021) + proxy(5020) + edge
 ```
 
-El **reporte** muestra, por cada prueba, si pasó o falló, con el detalle y —si
-falló— el error. Se regenera en cada corrida con `--html=...`.
-
----
-
-## Inyección de alarmas
-
-Dos comandos. Docker + OmniOps tienen que estar prendidos aparte.
+Then inject and verify with `tools.probar`:
 
 ```bash
-python -m tools.arrancar_alarmas          # levanta simulador(5021) + proxy(5020) + edge
-python -m tools.probar 16 --vivo          # inyecta la alarma 16, verifica (causa + API + hora) y limpia
-python -m tools.probar 16 --at 10 --hasta 30 --vivo   # escena temporal
+python -m tools.probar 16                       # cause (raw) + API
+python -m tools.probar 16 --with-ui             # cause + API + UI (ui:YES)
+python -m tools.probar 16 --ui-only             # SCREEN only (no API): by name + fresh timestamp
+python -m tools.probar 16 --at 5 --hasta 40     # full scene (see below)
+python -m tools.probar --criticals --with-ui    # all injectable critical alarms
+python -m tools.probar --subsystem pcs          # alarms of a subsystem
 ```
 
-Flujo de datos: `simulador (5021) -> proxy (5020) -> edge -> Event Hub -> OmniOps`.
-El proxy inyecta la condición en el stream Modbus; OmniOps debe entonces generar
-la alarma. Los timestamps de OmniOps vienen en **UTC**; el framework compara en
-UTC y muestra en hora local.
+**Full scene** (`--at N --hasta M`): the complete end-to-end timeline, shown live —
+before injection (absent) → inject at N (records the exact moment) → verify it is
+registered at inject time, shown on the /alarms screen, and that the screen timestamp
+matches the API → `lastOccurred` rising live → clear at M → verify the cause is gone
+and `lastOccurred` freezes.
+
+**UI-only** (`--ui-only`): inject, then verify **on the screen only** (no API), reading
+the row's `first`/`last occurred` from the /alarms table. A fresh `last occurred`
+proves our injection reached the UI; a fresh `first occurred` means the alarm is NEW.
+
+Data flow: `simulator (5021) -> proxy (5020) -> edge -> Event Hub -> OmniOps`.
+Timestamps from OmniOps are in **UTC**; the framework compares in UTC and displays
+in local time. OmniOps does not close alarms, so we verify freshness via
+`lastOccurred` (see `docs/COMO_FUNCIONA.md`).
 
 ---
 
-## Monitores en vivo (observan, no afirman)
+## Live monitors (observe, do not assert)
 
 ```bash
-python -m monitors.watch_power           # simulador vs API (potencia)
-python -m monitors.watch_three_layers    # simulador vs API vs UI
-python -m monitors.watch_alarms          # alarmas en vivo (inyectás desde otra terminal)
+python -m monitors.watch_power           # simulator vs API (power)
+python -m monitors.watch_three_layers    # simulator vs API vs UI
+python -m monitors.watch_alarms          # alarms live (inject from another terminal)
 ```
 
 ---
 
-## ¿Dónde pongo cada cosa?
+## Offline self-checks
 
-| Lo que tenés | Va en |
-|---|---|
-| Un selector de UI | `framework_ui/pages/<módulo>/*_locators.py` |
-| Una acción/lectura de UI | `framework_ui/pages/<módulo>/*_page.py` |
-| Un componente reutilizable (tabla, tarjeta) | `framework_ui/pages/<módulo>/components/` |
-| Una llamada HTTP cruda | `framework_api/services/` (vía `ApiClient`) |
-| Un modelo del JSON | `framework_api/models/` (dataclass con `from_json`) |
-| Lógica de negocio / "valor esperado" | `shared/domain/` |
-| Un valor de config (URL, puerto, umbral) | `shared/config/settings.py` |
-| Una verificación (verde/rojo) | `tests/` (el assert acá) |
-| Un monitor en vivo | `monitors/` |
-| Un script de investigación | `tools/` |
-
-Regla práctica: si algo necesita que el sistema le responda, no es `domain`. Si
-cruza capas (simulador + API, o API + UI), es `cross_layer` (un test) o un
-comando de `tools/`. La capa API nunca debe saber de Modbus.
-
----
-
-## Self-checks offline
-
-La mayoría de los módulos de dominio validan su propia lógica sin el stack:
+Most domain modules validate their own logic without the stack:
 
 ```bash
 python -m shared.domain.oracle --self-check
@@ -150,13 +153,12 @@ python -m tools.sim_proxy --self-check
 
 ---
 
-## Notas
+## Notes
 
-- `pymodbus` fijado en **3.7.4** — tiene que coincidir con el simulador. Las
-  versiones nuevas rompen `ModbusSlaveContext`.
-- El `.env` (credenciales reales) está en `.gitignore`; solo se sube `.env.example`.
-- **Cómo y por qué funciona (a fondo): ver `docs/COMO_FUNCIONA.md`** — explica el
-  oráculo diferencial, el proxy paso a paso, y los hallazgos de QA (OmniOps evalúa
-  por telemetría y no cierra alarmas). Lectura recomendada antes de tocar el código.
-- Ver `MIGRATION_STATUS.md` para el historial de migración y `ARQUITECTURA.md`
-  para el detalle de la arquitectura.
+- `pymodbus` is pinned to **3.7.4** — it must match the simulator. Newer versions
+  break `ModbusSlaveContext`.
+- The `.env` (real credentials) is git-ignored; only `.env.example` is committed.
+- `EDGE_PYTHON` in `settings.py` points to the interpreter used to launch the edge
+  (it has its own deps: pyyaml, dotenv, Azure SDK). Adjust it per machine.
+- Deep dive on how the proxy and the oracle work: `docs/COMO_FUNCIONA.md`.
+- Architecture rationale: `ARQUITECTURA.md`. Migration history: `MIGRATION_STATUS.md`.
