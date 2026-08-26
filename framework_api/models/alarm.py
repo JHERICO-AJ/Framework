@@ -1,25 +1,14 @@
-"""Model Alarm — el JSON de la API se parsea UNA vez acá (DTO).
+"""Model Alarm — the API's JSON is parsed ONCE, here (DTO).
 
-Es el ÚNICO lugar que conoce los nombres de campo del backend. Si el backend
-renombra 'alarmRuleId', se toca una línea. Las fechas vienen en UTC.
+This is the ONLY place that knows the backend's field names. If the backend
+renames 'alarmRuleId', only one line needs to change. Dates come in UTC.
 """
 from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass
 
-
-def _parse_dt(texto):
-    """'2026-08-18 13:29:15' (UTC) -> datetime aware en UTC (o None)."""
-    if not texto:
-        return None
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
-        try:
-            return datetime.datetime.strptime(texto, fmt).replace(
-                tzinfo=datetime.timezone.utc)
-        except ValueError:
-            continue
-    return None
+from shared.utils.parsing import parse_api_datetime
 
 
 @dataclass(frozen=True)
@@ -40,16 +29,16 @@ class Alarm:
         return (self.status or "").strip().lower() == "open"
 
     @classmethod
-    def from_json(cls, d: dict) -> "Alarm":
+    def from_json(cls, alarm_dict: dict) -> "Alarm":
         return cls(
-            rule_id=d["alarmRuleId"],
-            name=d.get("alarm", ""),
-            severity=d.get("severity", ""),
-            status=d.get("status", ""),
-            subsystem=d.get("subsystem", ""),
-            signal=d.get("signal", ""),
-            device_name=d.get("deviceName", ""),
-            site_id=d.get("siteId", ""),
-            first_occurred=_parse_dt(d.get("firstOccurred")),
-            last_occurred=_parse_dt(d.get("lastOccurred")),
+            rule_id=alarm_dict["alarmRuleId"],
+            name=alarm_dict.get("alarm", ""),
+            severity=alarm_dict.get("severity", ""),
+            status=alarm_dict.get("status", ""),
+            subsystem=alarm_dict.get("subsystem", ""),
+            signal=alarm_dict.get("signal", ""),
+            device_name=alarm_dict.get("deviceName", ""),
+            site_id=alarm_dict.get("siteId", ""),
+            first_occurred=parse_api_datetime(alarm_dict.get("firstOccurred")),
+            last_occurred=parse_api_datetime(alarm_dict.get("lastOccurred")),
         )

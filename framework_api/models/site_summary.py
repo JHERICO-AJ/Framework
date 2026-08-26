@@ -1,4 +1,4 @@
-"""Model SiteSummary — resumen de monitoreo (potencia PCS calculada por OmniOps)."""
+"""Model SiteSummary — monitoring summary (PCS power calculated by OmniOps)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,9 +10,9 @@ class SiteSummary:
     timestamp: str | None
 
     @classmethod
-    def from_json(cls, d: dict) -> "SiteSummary":
-        dd = (d or {}).get("dispatchDiagnostics") or {}
+    def from_json(cls, payload_dict: dict) -> "SiteSummary":
+        dispatch_diagnostics = (payload_dict or {}).get("dispatchDiagnostics") or {}
         return cls(
-            actual_pcs_power_kw=dd.get("actualPcsPower"),
-            timestamp=dd.get("timestamp"),
+            actual_pcs_power_kw=dispatch_diagnostics.get("actualPcsPower"),
+            timestamp=dispatch_diagnostics.get("timestamp"),
         )

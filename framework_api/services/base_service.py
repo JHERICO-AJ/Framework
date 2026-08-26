@@ -1,16 +1,23 @@
-"""BaseService — todos los services reciben el ApiClient y comparten helpers."""
+"""BaseService — every service receives the ApiClient and shares helpers."""
 from __future__ import annotations
 
 
-def unwrap(payload):
-    """La API puede devolver un array plano o algo envuelto. Devuelve la lista."""
-    if isinstance(payload, list):
-        return payload
-    if isinstance(payload, dict):
-        for k in ("items", "data", "results", "alarms", "value"):
-            if isinstance(payload.get(k), list):
-                return payload[k]
-    return []
+class ApiListResponse:
+    """Wraps a raw API payload that may be a plain list, or a dict with the
+    list nested under one of a few known keys."""
+    LIST_KEYS = ("items", "data", "results", "alarms", "value")
+
+    def __init__(self, payload):
+        self._payload = payload
+
+    def items(self):
+        if isinstance(self._payload, list):
+            return self._payload
+        if isinstance(self._payload, dict):
+            for key in self.LIST_KEYS:
+                if isinstance(self._payload.get(key), list):
+                    return self._payload[key]
+        return []
 
 
 class BaseService:

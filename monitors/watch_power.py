@@ -1,6 +1,6 @@
-"""watch_power — monitor EN VIVO de potencia: simulador vs API (cálculo).
+"""watch_power — LIVE power monitor: simulator vs API (calculation).
 
-Observa en bucle (no valida). Para demo/debug. Ctrl+C para salir.
+Watches in a loop (doesn't validate). For demo/debug. Ctrl+C to exit.
     python -m monitors.watch_power
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ from framework_api.services.monitoring_service import MonitoringService
 
 def run():
     svc = MonitoringService(ApiClient(BASE_URL))
-    print("watch_power — simulador vs API (Ctrl+C para salir)\n")
+    print("watch_power — simulator vs API (Ctrl+C to exit)\n")
     try:
         while True:
             sim_kw, _ = read_sim_total_kw()
@@ -24,10 +24,10 @@ def run():
             ok = api_kw is not None and power.matches(sim_kw, float(api_kw))
             api_txt = f"{float(api_kw):8.0f}" if api_kw is not None else "   —"
             print(f"sim={sim_kw:8.0f} kW   api={api_txt} kW   "
-                  f"{'PASA' if ok else 'FALLA'}")
+                  f"{'PASS' if ok else 'FAIL'}")
             time.sleep(OMNIOPS_EVERY_S)
     except KeyboardInterrupt:
-        print("\nfin.")
+        print("\ndone.")
     finally:
         close_sim()
 

@@ -1,5 +1,5 @@
-"""Única lectura de credenciales. Prioridad: variables de entorno / .env, y como
-compatibilidad, el viejo omniops_login.txt. Nunca hardcodear credenciales."""
+"""Single place to read credentials. Priority: environment variables / .env, and
+as a compatibility fallback, the old omniops_login.txt. Never hardcode credentials."""
 from __future__ import annotations
 
 import os
@@ -15,16 +15,16 @@ def _load_dotenv(path=".env"):
 
 
 def load_credentials():
-    """Devuelve {'email': ..., 'password': ...} o lanza si no hay."""
+    """Returns {'email': ..., 'password': ...} or raises if there are none."""
     _load_dotenv()
     email = os.environ.get("OMNIOPS_EMAIL")
     password = os.environ.get("OMNIOPS_PASSWORD")
     if email and password:
         return {"email": email, "password": password}
-    # compat: omniops_login.txt (email en una línea, password en otra)
+    # compat: omniops_login.txt (email on one line, password on another)
     if os.path.exists("omniops_login.txt"):
-        lineas = [l.strip() for l in open("omniops_login.txt", encoding="utf-8") if l.strip()]
-        if len(lineas) >= 2:
-            return {"email": lineas[0], "password": lineas[1]}
-    raise RuntimeError("No hay credenciales. Definí OMNIOPS_EMAIL y OMNIOPS_PASSWORD "
-                       "en un archivo .env (ver .env.example).")
+        lines = [l.strip() for l in open("omniops_login.txt", encoding="utf-8") if l.strip()]
+        if len(lines) >= 2:
+            return {"email": lines[0], "password": lines[1]}
+    raise RuntimeError("No credentials found. Set OMNIOPS_EMAIL and OMNIOPS_PASSWORD "
+                       "in a .env file (see .env.example).")

@@ -1,2 +1,2 @@
-"""Las fixtures de API viven en tests/conftest.py (raíz) para que las compartan
-también los tests cross_layer. Este archivo se deja como marcador del paquete."""
+"""The API fixtures live in tests/conftest.py (root) so the cross_layer tests
+can share them too. This file is kept as a package marker."""

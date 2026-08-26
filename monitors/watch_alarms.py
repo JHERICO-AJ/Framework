@@ -1,8 +1,8 @@
-"""watch_alarms — monitor EN VIVO de alarmas: inyectás (desde otra terminal) y
-ves causa (crudo) vs API en tiempo real. Observa en bucle, no valida.
+"""watch_alarms — LIVE alarm monitor: you inject (from another terminal) and
+see cause (raw) vs API in real time. Watches in a loop, doesn't validate.
 
     python -m monitors.watch_alarms
-    # en otra terminal:  python -m tools.probar 16   (o inyección manual)
+    # in another terminal:  python -m tools.run_check 16   (or manual injection)
 """
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ import datetime
 import time
 
 from shared.config.settings import BASE_URL, OMNIOPS_EVERY_S, SIM_HOST, SIM_PORT
-from shared.datasource.modbus_source import LectorModbus
+from shared.datasource.modbus_source import ModbusReader
 from shared.domain import alarm_catalog as cat
-from shared.domain.oracle import evaluar
-from shared.domain.verdict import clasificar, PASA, FALLA_FALSA, FALLA_NO_DETECTADA
+from shared.domain.oracle import evaluate
+from shared.domain.verdict import classify, FAIL_FALSE_ALARM, FAIL_NOT_DETECTED
 from framework_api.client.api_client import ApiClient
 from framework_api.services.alarms_service import AlarmsService
 
@@ -32,49 +32,72 @@ def _api_snapshot(service):
     return open_ids, last_by_rule
 
 
+def _connect_reader():
+    reader = ModbusReader()
+    reader.read_register(cat.ADDR["evt1_802"])
+    return reader
+
+
+def _build_baseline(service):
+    start = datetime.datetime.now(datetime.timezone.utc)
+    baseline, _ = _api_snapshot(service)
+    print(f"watch_alarms — started {start.astimezone():%H:%M:%S}. "
+          f"Already open: {sorted(baseline)}")
+    print("Inject from another terminal (python -m tools.run_check <id>). Ctrl+C to exit.\n")
+    return start, baseline
+
+
+def _interesting_rule_ids(present, last_by_rule, start):
+    interest = set(present)
+    for rule_id, last_update in last_by_rule.items():
+        if last_update >= start - datetime.timedelta(seconds=TOL_S):
+            interest.add(rule_id)
+    return interest
+
+
+def _print_line(now_str, rule_id, states, open_ids, last_by_rule, start):
+    name = cat.BY_RULE_ID.get(rule_id, {}).get("name", f"rule {rule_id}")
+    cause = states.get(rule_id, (None, ""))[0]
+    last_update = last_by_rule.get(rule_id)
+    fresh = bool(last_update and last_update >= start - datetime.timedelta(seconds=TOL_S))
+    verdict = classify(cause, rule_id in open_ids, fresh)
+    mark = "  <<<" if verdict in (FAIL_FALSE_ALARM, FAIL_NOT_DETECTED) else ""
+    cause_text = {True: "YES", False: "no ", None: "n/v"}[cause]
+    print(f"[{now_str}] ID {rule_id:2} {name:24} cause:{cause_text} "
+          f"api:{'YES' if rule_id in open_ids else 'no'}  -> {verdict}{mark}")
+
+
+def _watch_loop(reader, service, start, baseline):
+    while True:
+        now_str = datetime.datetime.now().strftime("%H:%M:%S")
+        states, present = evaluate(reader)
+        open_ids, last_by_rule = _api_snapshot(service)
+
+        interest = _interesting_rule_ids(present, last_by_rule, start)
+
+        if not interest:
+            print(f"[{now_str}] no injected causes or new alarms "
+                  f"(already open: {len(baseline)})")
+        else:
+            for rule_id in sorted(interest):
+                _print_line(now_str, rule_id, states, open_ids, last_by_rule, start)
+        time.sleep(OMNIOPS_EVERY_S)
+
+
 def run():
     service = AlarmsService(ApiClient(BASE_URL))
     try:
-        reader = LectorModbus()
-        reader.leer_registro(cat.ADDR["evt1_802"])
+        reader = _connect_reader()
     except Exception as e:
-        print(f"No puedo leer el simulador en {SIM_HOST}:{SIM_PORT}. "
-              f"¿Levantaste el proxy?\n  {e}")
+        print(f"Can't read the simulator at {SIM_HOST}:{SIM_PORT}. "
+              f"Did you start the proxy?\n  {e}")
         return
 
-    start = datetime.datetime.now(datetime.timezone.utc)
-    baseline, _ = _api_snapshot(service)
-    print(f"watch_alarms — arranque {start.astimezone():%H:%M:%S}. "
-          f"Viejas ya abiertas: {sorted(baseline)}")
-    print("Inyectá desde otra terminal (python -m tools.probar <id>). Ctrl+C para salir.\n")
+    start, baseline = _build_baseline(service)
     try:
-        while True:
-            hora = datetime.datetime.now().strftime("%H:%M:%S")
-            states, present = evaluar(reader)
-            open_ids, last_by_rule = _api_snapshot(service)
-
-            interest = set(present)
-            for rid, ul in last_by_rule.items():
-                if ul >= start - datetime.timedelta(seconds=TOL_S):
-                    interest.add(rid)
-
-            if not interest:
-                print(f"[{hora}] sin causas inyectadas ni alarmas nuevas "
-                      f"(viejas: {len(baseline)})")
-            else:
-                for rid in sorted(interest):
-                    name = cat.BY_RULE_ID.get(rid, {}).get("name", f"rule {rid}")
-                    cause = states.get(rid, (None, ""))[0]
-                    ul = last_by_rule.get(rid)
-                    fresh = bool(ul and ul >= start - datetime.timedelta(seconds=TOL_S))
-                    v = clasificar(cause, rid in open_ids, fresh)
-                    mark = "  <<<" if v in (FALLA_FALSA, FALLA_NO_DETECTADA) else ""
-                    et = {True: "SÍ ", False: "no ", None: "n/v"}[cause]
-                    print(f"[{hora}] ID {rid:2} {name:24} causa:{et} "
-                          f"api:{'SÍ' if rid in open_ids else 'no'}  -> {v}{mark}")
-            time.sleep(OMNIOPS_EVERY_S)
+        _watch_loop(reader, service, start, baseline)
     except KeyboardInterrupt:
-        print("\nfin.")
+        print("\ndone.")
     finally:
         reader.close()
 

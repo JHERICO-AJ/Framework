@@ -1,82 +1,83 @@
-# Estado de la migración a la arquitectura nueva
+# Status of the migration to the new architecture
 
-Se migra **capa por capa**, en el orden que recomienda ARQUITECTURA.md (sección 8),
-dejando el repo funcionando en cada paso.
+Migrated **layer by layer**, in the order recommended by ARQUITECTURA.md
+(section 8), leaving the repo working at every step.
 
-## ✅ Paso 1 — shared/ (HECHO y verificado)
-La base común, migrada desde el framework anterior y verificada offline:
+## ✅ Step 1 — shared/ (DONE and verified)
+The common base, migrated from the previous framework and verified offline:
 
-- `shared/config/settings.py`   ← config central (ex `config.py`)
-- `shared/config/credentials.py`← única lectura de credenciales (.env / env), sin duplicar
-- `shared/auth/auth.py`         ← TokenAuth + make_auth (usa credentials)
-- `shared/datasource/modbus_source.py` ← única lectura del simulador (self-check ✓)
+- `shared/config/settings.py`   ← central config (formerly `config.py`)
+- `shared/config/credentials.py`← the single place credentials are read (.env / env), no duplication
+- `shared/auth/`                ← base/token_auth/cookie_auth/factory (TokenAuth + make_auth, uses credentials)
+- `shared/datasource/modbus_source.py` ← the only place that reads the simulator (self-check ✓)
 - `shared/utils/`               ← time_anchor, omniops_time, logger
 - `shared/domain/`              ← alarm_catalog, telemetry_map, oracle, verdict,
-                                   injection, power  (todos con self-check ✓)
+                                   injection, power  (all with self-check ✓)
 
-Verificación: los 13 módulos importan y los self-checks de dominio pasan
+Verification: the 13 modules import fine and the domain self-checks pass
 (`oracle`, `verdict`, `injection`, `power`, `modbus_source`).
 
-## ✅ Paso 2 — framework_api/ (SOM)  (HECHO y verificado)
-- `client/api_client.py` — transporte único (auth, base URL, log)
-- `services/` — base_service, alarms_service, monitoring_service (devuelven models)
-- `models/` — alarm.py, site_summary.py (dataclasses con from_json; fechas UTC)
-Verificación: 3 unit tests OFFLINE en `tests/api/` pasan contra `alarms_sample.json`
-(`pytest tests/api -v`), sin necesidad del stack.
+## ✅ Step 2 — framework_api/ (SOM)  (DONE and verified)
+- `client/api_client.py` — single transport (auth, base URL, log)
+- `services/` — base_service, alarms_service, monitoring_service (return models)
+- `models/` — alarm.py, site_summary.py (dataclasses with from_json; UTC dates)
+Verification: 3 OFFLINE unit tests in `tests/api/` pass against
+`alarms_sample.json` (`pytest tests/api -v`), no stack needed.
 
-## ✅ Paso 3 — framework_ui/ (POM)  (HECHO)
-- `browser/browser_factory.py` — ciclo de vida de Playwright (context manager)
-- `base/` — base_page (wait por DOM, no networkidle), base_component
+## ✅ Step 3 — framework_ui/ (POM)  (DONE)
+- `browser/browser_factory.py` — Playwright lifecycle (context manager)
+- `base/` — base_page (wait by DOM, not networkidle), base_component
 - `pages/auth/` — login_page + login_locators
 - `pages/monitoring/` — monitoring_page + components/power_card (+ locators)
-- `pages/alarms_events/` — alarms_page + components/alarms_table (tabla virtualizada)
-Locators AL LADO de cada page. Import-check OK; parse_kw con unit test offline.
-La lectura viva con navegador se confirma en el Paso 4 (fixtures) contra el stack.
+- `pages/alarms_events/` — alarms_page + components/alarms_table (virtualized table)
+Locators live NEXT TO each page. Import check OK; parse_kw with an offline unit test.
+Live reading with a browser is confirmed in Step 4 (fixtures) against the stack.
 
-## ✅ Paso 4 — tests/ con fixtures  (HECHO)
-- `tests/conftest.py` — base_url, credentials, require_stack (saltea si no hay stack)
-- `tests/api/conftest.py` — api_client + services (sesión, sin browser)
-- `tests/ui/conftest.py` — logged_in_page (browser + login UNA vez), monitoring_page, alarms_page
-- `tests/cross_layer/test_power_three_layers.py` — simulador vs API vs UI (el diferencial)
-- `tests/api/alarms_events/test_alarms_live.py` — alarmas en vivo (devuelve models)
-Offline: 4 unit tests pasan, los de stack se SALTAN limpio. Los cross_layer/live
-corren contra el stack real (simulador + OmniOps prendidos).
+## ✅ Step 4 — tests/ with fixtures  (DONE)
+- `tests/conftest.py` — base_url, credentials, require_stack (skips cleanly if no stack)
+- `tests/api/conftest.py` — api_client + services (session, no browser)
+- `tests/ui/conftest.py` — logged_in_page (browser + login ONCE), monitoring_page, alarms_page
+- `tests/cross_layer/test_power_three_layers.py` — simulator vs API vs UI (the differential)
+- `tests/api/alarms_events/test_alarms_live.py` — live alarms (returns models)
+Offline: 4 unit tests pass, the stack-dependent ones SKIP cleanly. The
+cross_layer/live ones run against the real stack (simulator + OmniOps up).
 
-## 🔶 Paso 5 — monitors/ + tools/  (5a HECHO, 5b pendiente)
+## 🔶 Step 5 — monitors/ + tools/  (5a DONE, 5b pending)
 
-### ✅ 5a — inyección de alarmas end-to-end (HECHO)
-- `tools/sim_proxy.py`      — proxy Modbus (bits + telemetría). Loopback ✓
-- `tools/sim_launcher.py`   — helpers de puerto + launcher simple
-- `tools/arrancar_alarmas.py`— levanta sim(5021)+proxy(5020)+edge; baja al Ctrl+C
-- `tools/probar.py`         — comando operativo (--vivo/--at); verify_alarms() reusable
-- `tests/cross_layer/test_alarms.py` — inyecta ID 16 y verifica -> PASA (assert en el test)
+### ✅ 5a — end-to-end alarm injection (DONE)
+- `tools/sim_proxy.py`      — Modbus proxy (bits + telemetry). Loopback ✓
+- `tools/sim_launcher.py`   — port helpers + simple launcher
+- `tools/start_alarms_stack.py`— brings up sim(5021)+proxy(5020)+edge; tears down on Ctrl+C
+- `tools/run_check.py`      — operational command (--live/--at); reusable verify_alarms()
+- `tests/cross_layer/test_alarms.py` — injects ID 16 and verifies -> PASS (assert in the test)
 
-Flujo:  python -m tools.arrancar_alarmas   +   python -m tools.probar 16 --vivo
-   o:   pytest tests/cross_layer/test_alarms.py   (con la cadena arriba)
+Flow:  python -m tools.start_alarms_stack   +   python -m tools.run_check 16 --live
+   or: pytest tests/cross_layer/test_alarms.py   (with the chain above)
 
-### ✅ 5b — monitores + sniffer + reporter (HECHO)
-- `monitors/watch_power.py`        — sim vs API en vivo
-- `monitors/watch_three_layers.py` — sim vs API vs UI en vivo
-- `monitors/watch_alarms.py`       — alarmas en vivo (inyectás y ves causa vs API)
-- `monitors/reporter.py`           — reporte (solo monitores, no tests)
-- `tools/sniff_alarms_api.py`      — descubre la API de alarmas
-- `tools/diagnostics/`             — scripts de investigación
-Reescritos contra los services/pages nuevos. Importan OK.
+### ✅ 5b — monitors + sniffer + reporter (DONE)
+- `monitors/watch_power.py`        — sim vs API live
+- `monitors/watch_three_layers.py` — sim vs API vs UI live
+- `monitors/watch_alarms.py`       — live alarms (you inject and see cause vs API)
+- `monitors/reporter.py`           — report (monitors only, not tests)
+- `tools/sniff_alarms_api.py`      — discovers the alarms API
+- `tools/diagnostics/`             — investigation scripts
+Rewritten against the new services/pages. Import fine.
 
 ---
-## 🎉 MIGRACIÓN COMPLETA — las 5 capas migradas y verificadas.
-Estructura: shared/ · framework_api/ · framework_ui/ · tests/ · monitors/ · tools/
-Verificado en vivo: potencia 3 capas (pytest) e inyección de alarmas (probar 16).
-## ⬜ Paso 3 — framework_ui/ (POM)
-`browser/browser_factory.py` + `base/` + `pages/<módulo>/` (page + locators) +
+## 🎉 MIGRATION COMPLETE — all 5 layers migrated and verified.
+Structure: shared/ · framework_api/ · framework_ui/ · tests/ · monitors/ · tools/
+Verified live: three-layer power (pytest) and alarm injection (probar 16).
+## ⬜ Step 3 — framework_ui/ (POM)
+`browser/browser_factory.py` + `base/` + `pages/<module>/` (page + locators) +
 `components/`.
 
-## ⬜ Paso 4 — tests/ (api / ui / cross_layer) con fixtures de pytest
+## ⬜ Step 4 — tests/ (api / ui / cross_layer) with pytest fixtures
 
-## ⬜ Paso 5 — monitors/ + tools/ (renombrados en inglés)
+## ⬜ Step 5 — monitors/ + tools/ (renamed to English)
 
-## Notas
-- Identificadores: la migración de `shared/` conserva la lógica ya probada. El
-  pase fino de renombrar helpers internos al inglés se hace junto con cada capa.
-- Credenciales: ahora por `.env` (ver `.env.example`). Compat: si existe
-  `omniops_login.txt`, todavía se lee.
+## Notes
+- Identifiers: the `shared/` migration keeps the already-proven logic. The
+  fine-grained pass of renaming internal helpers to English happens
+  together with each layer.
+- Credentials: now via `.env` (see `.env.example`). Compat: if
+  `omniops_login.txt` exists, it's still read.

@@ -1,5 +1,5 @@
-"""Fixtures compartidas por TODOS los tests (viven en la raíz de tests/ para que
-las vean api/, ui/ y cross_layer/ por igual)."""
+"""Fixtures shared by ALL tests (they live at the root of tests/ so that
+api/, ui/, and cross_layer/ can all see them alike)."""
 import socket
 
 import pytest
@@ -26,7 +26,7 @@ def credentials():
     return load_credentials()
 
 
-def _puerto_abierto(host, port, timeout=1.5):
+def _port_open(host, port, timeout=1.5):
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True
@@ -36,12 +36,12 @@ def _puerto_abierto(host, port, timeout=1.5):
 
 @pytest.fixture(scope="session")
 def require_stack():
-    """Saltea el test (en vez de fallar) si el simulador/proxy no está en 5020."""
-    if not _puerto_abierto(SIM_HOST, SIM_PORT):
-        pytest.skip(f"el simulador/proxy no responde en {SIM_HOST}:{SIM_PORT}")
+    """Skips the test (instead of failing) if the simulator/proxy isn't on 5020."""
+    if not _port_open(SIM_HOST, SIM_PORT):
+        pytest.skip(f"the simulator/proxy isn't responding on {SIM_HOST}:{SIM_PORT}")
 
 
-# ---- capa API (sin browser, rápidas) ----
+# ---- API layer (no browser, fast) ----
 @pytest.fixture(scope="session")
 def api_client(base_url):
     return ApiClient(base_url)
@@ -57,7 +57,7 @@ def monitoring_service(api_client):
     return MonitoringService(api_client)
 
 
-# ---- capa UI (browser + login UNA vez por sesión) ----
+# ---- UI layer (browser + login ONCE per session) ----
 @pytest.fixture(scope="session")
 def logged_in_page(credentials):
     factory = BrowserFactory()

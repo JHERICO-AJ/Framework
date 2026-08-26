@@ -1,12 +1,12 @@
-"""Dominio PURO de potencia: comparar el valor esperado (suma del simulador)
-contra el real (API/UI), con tolerancias. Sin red — testeable solo."""
+"""PURE power domain: compare the expected value (sum from the simulator)
+against the real one (API/UI), with tolerances. No network — testable standalone."""
 from __future__ import annotations
 
 from shared.config.settings import TOL_ABS_KW, TOL_REL
 
 
 def matches(expected_kw, actual_kw, abs_tol=TOL_ABS_KW, rel_tol=TOL_REL):
-    """True si actual ≈ expected dentro de tolerancia absoluta O relativa."""
+    """True if actual ≈ expected within absolute OR relative tolerance."""
     if expected_kw is None or actual_kw is None:
         return False
     diff = abs(actual_kw - expected_kw)
@@ -16,7 +16,7 @@ def matches(expected_kw, actual_kw, abs_tol=TOL_ABS_KW, rel_tol=TOL_REL):
 
 def _self_check():
     ok = matches(2500, 2480) and not matches(2500, 1000) and matches(0, 10)
-    print("power.matches:", "OK ✓" if ok else "MAL ✗")
+    print("power.matches:", "OK ✓" if ok else "FAIL ✗")
     return ok
 
 

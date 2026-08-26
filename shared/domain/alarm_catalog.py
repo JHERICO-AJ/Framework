@@ -1,23 +1,23 @@
 """
-alarms_catalog.py — Alarmas SPEC90 para el framework de validación de OmniOps. VERSION 5.
+alarm_catalog.py — SPEC90 alarms for the OmniOps validation framework. VERSION 5.
 
-OBJETIVO (oráculo): corroborar que cada alarma se activó POR LA CAUSA CORRECTA y no
-falsamente. El oráculo lee el Modbus CRUDO y confirma la causa (p.ej. Cell Overvoltage
-<-> Evt1_802 HR 10095 bit 9 = 0x200). verdict(): 4 casos (ver abajo).
+GOAL (oracle): confirm that each alarm was triggered BY THE CORRECT CAUSE and not
+falsely. The oracle reads the RAW Modbus and confirms the cause (e.g. Cell Overvoltage
+<-> Evt1_802 HR 10095 bit 9 = 0x200). verdict(): 4 cases (see below).
 
-V5: direcciones y bits REALES del Catalogo_Bits_BESS. Correcciones vs v4:
-  - ID 21 (Rack Contactor Failure): ahora es BIT (Evt1_802 bit 20), no telemetria.
-  - ID 22 (Rack Cooling Fan Failure): ahora es BIT (Evt1_802 bit 21), no EMS.
+V5: REAL addresses and bits from the Catalogo_Bits_BESS. Corrections vs v4:
+  - ID 21 (Rack Contactor Failure): now a BIT (Evt1_802 bit 20), not telemetry.
+  - ID 22 (Rack Cooling Fan Failure): now a BIT (Evt1_802 bit 21), not EMS.
 
-Capas: bit_802 (HR 10095) · bit_e001 (HR 9815) · bit_fire (FireAlarm HR 9818) ·
-       bit_pcsonline (PcsOnline HR 9822) · telemetry (Model 803) · ems/trend (fuera de Modbus).
+Layers: bit_802 (HR 10095) · bit_e001 (HR 9815) · bit_fire (FireAlarm HR 9818) ·
+       bit_pcsonline (PcsOnline HR 9822) · telemetry (Model 803) · ems/trend (outside Modbus).
 """
 
 ALARMS_API_PATH = "/api/events/alarms/filtered"
 
-# Direcciones absolutas (Holding Registers) confirmadas en el Catalogo de Bits
+# Absolute addresses (Holding Registers) confirmed in the Bit Catalog
 ADDR = dict(evt1_802=10095, evt1_e001=9815, fire_alarm=9818, pcs_online=9822)
-MODEL802_BASE = 10069   # el Evt1 esta en base+26 = 10095
+MODEL802_BASE = 10069   # Evt1 is at base+26 = 10095
 
 SUBSYSTEM_API_TO_UI = {
     'BATTERY_BMS': 'Battery / BMS',
@@ -91,22 +91,22 @@ ALARMS = [
     dict(alarm_rule_id=16, name='Rack High Temp', severity='Critical',
          subsystem_api='BATTERY_BMS', subsystem_ui='Battery / BMS',
          signal_trigger='Rack_T > 50-55 C', layer='telemetry',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetria Model 803 (string/PCS) vs umbral'}, oracle_independent=True,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetry Model 803 (string/PCS) vs threshold'}, oracle_independent=True,
          inject={'strings_or_pcs': {'t_max': 58.0}}),
     dict(alarm_rule_id=17, name='Rack Low Temp', severity='Major',
          subsystem_api='BATTERY_BMS', subsystem_ui='Battery / BMS',
          signal_trigger='Rack_T < 0-5 C', layer='telemetry',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetria Model 803 (string/PCS) vs umbral'}, oracle_independent=True,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetry Model 803 (string/PCS) vs threshold'}, oracle_independent=True,
          inject={'strings_or_pcs': {'t_min': -2.0}}),
     dict(alarm_rule_id=18, name='Rack Temp Gradient High', severity='Major',
          subsystem_api='BATTERY_BMS', subsystem_ui='Battery / BMS',
          signal_trigger='Rack Delta T > 10 C', layer='telemetry',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetria Model 803 (string/PCS) vs umbral'}, oracle_independent=True,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetry Model 803 (string/PCS) vs threshold'}, oracle_independent=True,
          inject={'strings_or_pcs': {'t_avg': 45.0}}),
     dict(alarm_rule_id=19, name='Rack Voltage Difference High', severity='Major',
          subsystem_api='BATTERY_BMS', subsystem_ui='Battery / BMS',
          signal_trigger='Module Delta V > 80-120 mV', layer='telemetry',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetria Model 803 (string/PCS) vs umbral'}, oracle_independent=True,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetry Model 803 (string/PCS) vs threshold'}, oracle_independent=True,
          inject={'strings_or_pcs': {'cv_max': 3.65}}),
     dict(alarm_rule_id=21, name='Rack Contactor Failure', severity='Critical',
          subsystem_api='BATTERY_BMS', subsystem_ui='Battery / BMS',
@@ -126,7 +126,7 @@ ALARMS = [
     dict(alarm_rule_id=24, name='Rack Smoke Detected', severity='Critical',
          subsystem_api='FIRE_SAFETY', subsystem_ui='Fire & Safety',
          signal_trigger='Smoke Sensor = ALARM', layer='bit_fire',
-         oracle={'hr': 9818, 'bit': None, 'mask': None, 'sig': 'FireAlarm (HR 9818) mask contenedor'}, oracle_independent=True,
+         oracle={'hr': 9818, 'bit': None, 'mask': None, 'sig': 'FireAlarm (HR 9818) container mask'}, oracle_independent=True,
          inject={'fire_containers': [1]}),
     dict(alarm_rule_id=27, name='Rack Ground Fault', severity='Critical',
          subsystem_api='BATTERY_BMS', subsystem_ui='Battery / BMS',
@@ -136,17 +136,17 @@ ALARMS = [
     dict(alarm_rule_id=29, name='String Overcurrent', severity='Critical',
          subsystem_api='BATTERY_BMS', subsystem_ui='Battery / BMS',
          signal_trigger='overcurrent (MAJOR inst / CRITICAL sostenida)', layer='telemetry',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetria Model 803 (string/PCS) vs umbral'}, oracle_independent=True,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetry Model 803 (string/PCS) vs threshold'}, oracle_independent=True,
          inject={'strings_or_pcs': {'current_a': 650.0}}),
     dict(alarm_rule_id=32, name='String Temp Abnormal', severity='Critical',
          subsystem_api='BATTERY_BMS', subsystem_ui='Battery / BMS',
          signal_trigger='Rack Delta T > 50 C', layer='telemetry',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetria Model 803 (string/PCS) vs umbral'}, oracle_independent=True,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetry Model 803 (string/PCS) vs threshold'}, oracle_independent=True,
          inject={'strings_or_pcs': {'t_max': 64.0}}),
     dict(alarm_rule_id=33, name='String SOC Imbalance', severity='Major',
          subsystem_api='BATTERY_BMS', subsystem_ui='Battery / BMS',
          signal_trigger='Rack Delta SOC > 3-5%', layer='telemetry',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetria Model 803 (string/PCS) vs umbral'}, oracle_independent=True,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetry Model 803 (string/PCS) vs threshold'}, oracle_independent=True,
          inject={'strings_or_pcs': {'soc': 44.0}}),
     dict(alarm_rule_id=38, name='PCS DC Bus Overvoltage', severity='Critical',
          subsystem_api='TRANSFORMER_PCS', subsystem_ui='PCS / Inverter',
@@ -166,22 +166,22 @@ ALARMS = [
     dict(alarm_rule_id=42, name='PCS AC Overcurrent', severity='Critical',
          subsystem_api='TRANSFORMER_PCS', subsystem_ui='PCS / Inverter',
          signal_trigger='AC Current exceeds standard', layer='telemetry',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetria Model 803 (string/PCS) vs umbral'}, oracle_independent=True,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetry Model 803 (string/PCS) vs threshold'}, oracle_independent=True,
          inject={'strings_or_pcs': {'inv_a': 90.0}}),
     dict(alarm_rule_id=43, name='PCS AC Undercurrent', severity='Minor',
          subsystem_api='TRANSFORMER_PCS', subsystem_ui='PCS / Inverter',
          signal_trigger='Output current lower than expected', layer='telemetry',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetria Model 803 (string/PCS) vs umbral'}, oracle_independent=True,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'telemetry Model 803 (string/PCS) vs threshold'}, oracle_independent=True,
          inject={'strings_or_pcs': {'inv_a': 2.0}}),
     dict(alarm_rule_id=44, name='PCS Phase Loss', severity='Critical',
          subsystem_api='TRANSFORMER_PCS', subsystem_ui='PCS / Inverter',
          signal_trigger='Any phase V/I in L1/L2/L3 ~ 0', layer='ems',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (causa fuera del Modbus)'}, oracle_independent=False,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (cause outside Modbus)'}, oracle_independent=False,
          inject={'ems': [44]}),
     dict(alarm_rule_id=45, name='PCS Phase Imbalance', severity='Major',
          subsystem_api='TRANSFORMER_PCS', subsystem_ui='PCS / Inverter',
          signal_trigger='Three-phase V/I imbalance > 20%', layer='ems',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (causa fuera del Modbus)'}, oracle_independent=False,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (cause outside Modbus)'}, oracle_independent=False,
          inject={'ems': [45]}),
     dict(alarm_rule_id=46, name='PCS Ground Fault', severity='Critical',
          subsystem_api='TRANSFORMER_PCS', subsystem_ui='PCS / Inverter',
@@ -191,52 +191,52 @@ ALARMS = [
     dict(alarm_rule_id=50, name='PCS Communication Lost', severity='Critical',
          subsystem_api='TRANSFORMER_PCS', subsystem_ui='PCS / Inverter',
          signal_trigger='PCS Port loses connection', layer='bit_pcsonline',
-         oracle={'hr': 9822, 'bit': None, 'mask': None, 'sig': 'PcsOnline (HR 9822) PCS caido'}, oracle_independent=True,
+         oracle={'hr': 9822, 'bit': None, 'mask': None, 'sig': 'PcsOnline (HR 9822) PCS down'}, oracle_independent=True,
          inject={'pcs_offline': [1]}),
     dict(alarm_rule_id=51, name='EMS-BMS Comm Lost', severity='Critical',
          subsystem_api='EMS_GATEWAY', subsystem_ui='EMS IPC & Gateway',
          signal_trigger='BMS Port loses connection', layer='ems',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (causa fuera del Modbus)'}, oracle_independent=False,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (cause outside Modbus)'}, oracle_independent=False,
          inject={'ems': [51]}),
     dict(alarm_rule_id=52, name='EMS-PCS Comm Lost', severity='Critical',
          subsystem_api='EMS_GATEWAY', subsystem_ui='EMS IPC & Gateway',
          signal_trigger='PCS Port loses connection', layer='ems',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (causa fuera del Modbus)'}, oracle_independent=False,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (cause outside Modbus)'}, oracle_independent=False,
          inject={'ems': [52]}),
     dict(alarm_rule_id=55, name='EMS Control Logic Fault', severity='Major',
          subsystem_api='EMS_GATEWAY', subsystem_ui='EMS IPC & Gateway',
          signal_trigger='Charge/Discharge directives contradictory', layer='ems',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (causa fuera del Modbus)'}, oracle_independent=False,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (cause outside Modbus)'}, oracle_independent=False,
          inject={'ems': [55]}),
     dict(alarm_rule_id=58, name='EMS Parameter Mismatch', severity='Major',
          subsystem_api='EMS_GATEWAY', subsystem_ui='EMS IPC & Gateway',
          signal_trigger='EMS setpoint exceeds BMS/PCS limits', layer='ems',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (causa fuera del Modbus)'}, oracle_independent=False,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (cause outside Modbus)'}, oracle_independent=False,
          inject={'ems': [58]}),
     dict(alarm_rule_id=66, name='Container Smoke Detected', severity='Critical',
          subsystem_api='FIRE_SAFETY', subsystem_ui='Fire & Safety',
          signal_trigger='Smoke Sensor = ALARM', layer='bit_fire',
-         oracle={'hr': 9818, 'bit': None, 'mask': None, 'sig': 'FireAlarm (HR 9818) mask contenedor'}, oracle_independent=True,
+         oracle={'hr': 9818, 'bit': None, 'mask': None, 'sig': 'FireAlarm (HR 9818) container mask'}, oracle_independent=True,
          inject={'fire_containers': [1]}),
     dict(alarm_rule_id=71, name='Critical sensor data drift/freeze', severity='Major',
          subsystem_api='EMS_GATEWAY', subsystem_ui='EMS IPC & Gateway',
          signal_trigger='Cell T change < 0.1C for 6h / dev > 10%', layer='trend',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (causa fuera del Modbus)'}, oracle_independent=False,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (cause outside Modbus)'}, oracle_independent=False,
          inject={'trend': [71]}),
     dict(alarm_rule_id=73, name='PCS power factor anomalous deviation', severity='Minor',
          subsystem_api='EMS_GATEWAY', subsystem_ui='EMS IPC & Gateway',
          signal_trigger='PF deviates from EMS target > 0.05 for 30 min', layer='trend',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (causa fuera del Modbus)'}, oracle_independent=False,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (cause outside Modbus)'}, oracle_independent=False,
          inject={'trend': [73]}),
     dict(alarm_rule_id=74, name='Meter data and PCS data mismatch', severity='Warning',
          subsystem_api='EMS_GATEWAY', subsystem_ui='EMS IPC & Gateway',
          signal_trigger='Meter vs PCS AC power > 1% over 7 days', layer='trend',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (causa fuera del Modbus)'}, oracle_independent=False,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (cause outside Modbus)'}, oracle_independent=False,
          inject={'trend': [74]}),
     dict(alarm_rule_id=78, name='PCS idle power drift', severity='Warning',
          subsystem_api='EMS_GATEWAY', subsystem_ui='EMS IPC & Gateway',
          signal_trigger='Idle PCS AC P > 5 kW for 1 h', layer='trend',
-         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (causa fuera del Modbus)'}, oracle_independent=False,
+         oracle={'hr': None, 'bit': None, 'mask': None, 'sig': 'N/A (cause outside Modbus)'}, oracle_independent=False,
          inject={'trend': [78]}),
 ]
 BY_RULE_ID = {a['alarm_rule_id']: a for a in ALARMS}
@@ -246,12 +246,12 @@ def find_api_alarm(api_list, rule_id):
     return next((x for x in api_list if x.get('alarmRuleId') == rule_id), None)
 
 def read_bit(modbus_read_u32, hr, bit):
-    """Lee un registro de 32 bits (2 HR) y devuelve True si <bit> esta encendido.
-    modbus_read_u32(hr) debe devolver el entero de 32 bits (hi<<16 | lo)."""
+    """Reads a 32-bit register (2 HR) and returns True if <bit> is on.
+    modbus_read_u32(hr) must return the 32-bit integer (hi<<16 | lo)."""
     return bool(modbus_read_u32(hr) & (1 << bit))
 
 def verdict(expected, api_alarm, cause_present):
-    """Correlaciona causa (crudo) vs alarma (API). (estado, motivos)."""
+    """Correlates cause (raw) vs alarm (API). (state, reasons)."""
     alarm_present = api_alarm is not None
     if cause_present and alarm_present:
         m = []
@@ -259,9 +259,9 @@ def verdict(expected, api_alarm, cause_present):
             m.append('severity %r != %r' % (api_alarm.get('severity'), expected['severity']))
         if api_alarm.get('subsystem') != expected['subsystem_api']:
             m.append('subsystem %r != %r' % (api_alarm.get('subsystem'), expected['subsystem_api']))
-        return ('PASA' if not m else 'FALLA', m)
+        return ('PASS' if not m else 'FAIL', m)
     if alarm_present and not cause_present:
-        return ('FALLA', ['ALARMA FALSA: aparece sin causa en el crudo'])
+        return ('FAIL', ['FALSE ALARM: appears with no cause in the raw data'])
     if cause_present and not alarm_present:
-        return ('FALLA', ['NO DETECTADA: causa presente sin alarma'])
-    return ('PASA', ['sano'])
+        return ('FAIL', ['NOT DETECTED: cause present with no alarm'])
+    return ('PASS', ['healthy'])

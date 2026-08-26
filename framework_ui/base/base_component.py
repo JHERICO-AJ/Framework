@@ -1,9 +1,9 @@
-"""BaseComponent — común a todo componente reutilizable (una pieza dentro de una page)."""
+"""BaseComponent — common to every reusable component (a piece within a page)."""
 from __future__ import annotations
 
 
 class BaseComponent:
     def __init__(self, page, root=None):
         self.page = page
-        # root: locator raíz del componente (para acotar la búsqueda a su scope)
+        # root: the component's root locator (to scope the search to it)
         self.root = page.locator(root) if isinstance(root, str) else (root or page)

@@ -1,39 +1,40 @@
 """
-diagnostico_signalr.py — ¿el número de la pantalla se actualiza solo (SignalR)?
+diagnostico_signalr.py — does the on-screen number update by itself (SignalR)?
 
-Abre el dashboard con Playwright, y durante ~20s lee el valor SIN recargar,
-para ver si cambia por su cuenta (señal de que SignalR está actualizando en vivo).
+Opens the dashboard with Playwright, and for ~20s reads the value WITHOUT
+reloading, to see if it changes on its own (a sign that SignalR is updating
+live).
 
-Correr:  python diagnostico_signalr.py
+Run:  python diagnostico_signalr.py
 """
 
 import time
 
 from framework_ui.pages.monitoring.monitoring_page import MonitoringPage
 
-DURACION_S = 20
+DURATION_S = 20
 
-print("Abriendo navegador (visible) y logueando...")
-ui = UiSession(headless=False)   # visible, para que veas la página
-print(f"Listo. Miro el valor durante {DURACION_S}s SIN recargar...\n")
+print("Opening browser (visible) and logging in...")
+ui = UiSession(headless=False)   # visible, so you can see the page
+print(f"Ready. Watching the value for {DURATION_S}s WITHOUT reloading...\n")
 
-valores = []
+values = []
 t0 = time.time()
 try:
-    while time.time() - t0 < DURACION_S:
-        val, txt = ui.read()          # lectura directa, sin recargar
-        marca = time.strftime("%H:%M:%S")
-        print(f"  [{marca}]  {txt}")
-        valores.append(val)
+    while time.time() - t0 < DURATION_S:
+        val, txt = ui.read()          # direct read, without reloading
+        stamp = time.strftime("%H:%M:%S")
+        print(f"  [{stamp}]  {txt}")
+        values.append(val)
         time.sleep(2)
 finally:
-    distintos = len(set(v for v in valores if v is not None))
-    print("\n=== DIAGNÓSTICO ===")
-    if distintos > 1:
-        print(f"El valor CAMBIÓ solo ({distintos} valores distintos).")
-        print("=> SignalR SÍ actualiza la pantalla en vivo. Podemos ir sin recargar.")
+    distinct = len(set(v for v in values if v is not None))
+    print("\n=== DIAGNOSIS ===")
+    if distinct > 1:
+        print(f"The value CHANGED on its own ({distinct} distinct values).")
+        print("=> SignalR DOES update the screen live. We can go without reloading.")
     else:
-        print("El valor NO cambió (quedó fijo).")
-        print("=> SignalR no está actualizando este navegador. Habría que ver por qué,")
-        print("   o seguir con el modo recargar (que igual valida bien el dato).")
+        print("The value did NOT change (stayed fixed).")
+        print("=> SignalR isn't updating this browser. We'd need to see why,")
+        print("   or stick with the reload mode (which still validates the data fine).")
     ui.close()

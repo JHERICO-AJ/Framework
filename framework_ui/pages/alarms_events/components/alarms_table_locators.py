@@ -1,4 +1,4 @@
-"""Selectores de la tabla de alarmas (/alarms). Tabla VIRTUALIZADA. SOLO strings."""
+"""Selectors for the alarms table (/alarms). VIRTUALIZED table. Strings ONLY."""
 SCROLL = ".custom-scrollbar"
 ROWS = ".custom-scrollbar tbody tr"
 CELL_NAME = ".cell-name"

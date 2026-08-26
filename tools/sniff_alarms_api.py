@@ -1,6 +1,6 @@
-"""sniff_alarms_api — descubre la API de alarmas capturando el tráfico de red.
-Abre /alarms logueado y vuelca las llamadas cuya URL menciona alarm/alert/events.
-Herramienta de investigación (tools/). No es un test.
+"""sniff_alarms_api — discovers the alarms API by capturing network traffic.
+Opens /alarms logged in and dumps calls whose URL mentions alarm/alert/events.
+Investigation tool (tools/). Not a test.
     python -m tools.sniff_alarms_api
 """
 from __future__ import annotations
@@ -14,26 +14,26 @@ from framework_ui.browser.browser_factory import BrowserFactory
 from framework_ui.pages.auth.login_page import LoginPage
 
 
-def _interesa(url):
+def _is_interesting(url):
     u = url.lower()
     return "alarm" in u or "alert" in u or "/events/" in u
 
 
-def sniff(segundos=8):
-    capturas = []
+def sniff(seconds=8):
+    captures = []
     creds = load_credentials()
     factory = BrowserFactory(headless=False)
     page = factory.__enter__()
 
     def on_response(resp):
         try:
-            if _interesa(resp.url):
-                cuerpo = None
+            if _is_interesting(resp.url):
+                body = None
                 try:
-                    cuerpo = resp.text()
+                    body = resp.text()
                 except Exception:
                     pass
-                capturas.append((resp.request.method, resp.url, resp.status, cuerpo))
+                captures.append((resp.request.method, resp.url, resp.status, body))
         except Exception:
             pass
 
@@ -41,21 +41,21 @@ def sniff(segundos=8):
         LoginPage(page).login(creds["email"], creds["password"])
         page.on("response", on_response)
         page.goto(BASE_URL + ALARMS_UI_PATH)
-        time.sleep(segundos)
+        time.sleep(seconds)
     finally:
         factory.__exit__(None, None, None)
 
-    if not capturas:
-        print("No capté llamadas con alarm/alert/events. ¿La tabla estaba visible?")
+    if not captures:
+        print("Didn't capture any calls with alarm/alert/events. Was the table visible?")
         return
-    for met, url, st, cuerpo in capturas:
+    for method, url, status, body in captures:
         print("\n" + "=" * 70)
-        print(f"{met} {url}\nstatus: {st}")
-        if cuerpo:
+        print(f"{method} {url}\nstatus: {status}")
+        if body:
             try:
-                print(json.dumps(json.loads(cuerpo), indent=2, ensure_ascii=False)[:1800])
+                print(json.dumps(json.loads(body), indent=2, ensure_ascii=False)[:1800])
             except Exception:
-                print(cuerpo[:600])
+                print(body[:600])
 
 
 if __name__ == "__main__":

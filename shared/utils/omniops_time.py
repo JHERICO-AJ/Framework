@@ -1,21 +1,22 @@
 """
-omniops_time.py — parseo de tiempo de OmniOps, en un solo lugar.
+omniops_time.py — OmniOps time parsing, in one place.
 
-Antes `parse_epoch` estaba copiado en los dos watchers. Ahora vive acá.
-Reusa `_parse_dt` de auth.py (que ya sabía manejar la 'Z' y los microsegundos).
+`parse_epoch` used to be duplicated in the two watchers. Now it lives here.
+Reuses `parse_iso_datetime` from shared.auth.base (which already knew how to
+handle the 'Z' and the microseconds).
 """
 
 from __future__ import annotations
 
-from shared.auth.auth import _parse_dt
+from shared.auth.base import parse_iso_datetime
 
 
 def parse_dt(ts):
-    """Texto ISO de OmniOps -> datetime (o None)."""
-    return _parse_dt(ts)
+    """OmniOps ISO text -> datetime (or None)."""
+    return parse_iso_datetime(ts)
 
 
 def parse_epoch(ts):
-    """Texto ISO de OmniOps -> epoch en segundos (float), o None."""
-    dt = _parse_dt(ts)
+    """OmniOps ISO text -> epoch in seconds (float), or None."""
+    dt = parse_iso_datetime(ts)
     return dt.timestamp() if dt else None

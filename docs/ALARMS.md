@@ -1,65 +1,66 @@
-# Validación de alarmas — módulo nuevo
+# Alarm validation — new module
 
-Extiende el framework a las **alarmas**, con el mismo patrón de oráculo diferencial
-que la potencia PCS: comparamos la **causa en el crudo** (simulador) contra la
-**alarma en la API** de OmniOps, y damos un veredicto.
+Extends the framework to **alarms**, with the same differential-oracle
+pattern used for PCS power: we compare the **cause in the raw data**
+(simulator) against the **alarm in the OmniOps API**, and give a verdict.
 
 ```
-  causa en el CRUDO           alarma en la API
+  cause in the RAW DATA        alarm in the API
   (alarms_oracle.py)   vs     (alarms_api.py)
             \____________  _____________/
-                    verdict.py  ->  PASA / PASA_SANO /
-                                    FALLA_FALSA / FALLA_NO_DETECTADA /
-                                    NO_VERIFICABLE
+                    verdict.py  ->  PASS / PASS_HEALTHY /
+                                    FAIL_FALSE_ALARM / FAIL_NOT_DETECTED /
+                                    NOT_VERIFIABLE
 ```
 
-## Piezas (todas con `--self-check`, prueban sin red)
+## Pieces (all with `--self-check`, tested without network)
 
-| Archivo | Rol | Depende del catálogo |
+| File | Role | Depends on the catalog |
 |---|---|---|
-| `verdict.py` | El juez: 4 casos + no verificable. Lógica pura. | No |
-| `alarms_api.py` | Lee `GET /api/events/alarms/filtered?Status=Open` y normaliza. | No |
-| `alarms_oracle.py` | Oráculo de causa: lee el crudo (bit de Evt1 / umbral). | Solo los números |
-| `watch_alarms.py` | Monitor en vivo: baseline (hoy) o completo (con catálogo). | Modo completo |
-| `alarms_catalog.example.py` | Plantilla del catálogo. Copiar a `alarms_catalog.py`. | — |
+| `verdict.py` | The judge: 4 cases + not verifiable. Pure logic. | No |
+| `alarms_api.py` | Reads `GET /api/events/alarms/filtered?Status=Open` and normalizes. | No |
+| `alarms_oracle.py` | Cause oracle: reads the raw data (Evt1 bit / threshold). | Only the numbers |
+| `watch_alarms.py` | Live monitor: baseline (today) or full (with catalog). | Full mode |
+| `alarms_catalog.example.py` | Catalog template. Copy to `alarms_catalog.py`. | — |
 
-El **motor está completo y probado**. Lo único que falta para el modo completo
-son los **datos** (qué registro/bit/límite dispara cada alarma), que van en
-`alarms_catalog.py` traducidos del **SPEC90 / MAPA_DE_BITS.md**.
+The **engine is complete and tested**. All that's missing for full mode is
+the **data** (which register/bit/limit triggers each alarm), which goes in
+`alarms_catalog.py`, translated from **SPEC90 / MAPA_DE_BITS.md**.
 
-## Cómo correr
+## How to run
 
-**Hoy, sin catálogo ni hook de inyección** (baseline + correlación pasiva):
+**Today, without a catalog or an injection hook** (baseline + passive
+correlation):
 
 ```bash
 python watch_alarms.py
 ```
 
-Con el simulador sano no debería haber ninguna alarma abierta; si aparece una,
-la marca como **posible FALSA**. Deja reporte en `reportes/`.
+With a healthy simulator there shouldn't be any open alarms; if one appears,
+it's flagged as a possible **FALSE ALARM**. Leaves a report in `reportes/`.
 
-**Antes que nada, fijar los nombres de campo de la API de alarmas** (no los
-conocemos aún). Con OmniOps corriendo:
+**First, pin down the field names of the alarms API** (we don't know them
+yet). With OmniOps running:
 
 ```bash
 python alarms_api.py --dump
 ```
 
-Pegame esa salida y ajusto los candidatos marcados `AJUSTAR` en `alarms_api.py`
-(y el `code` de match). Son 2-3 líneas.
+Send me that output and I'll adjust the candidates flagged `ADJUST` in
+`alarms_api.py` (and the matching `code`). It's 2-3 lines.
 
-**Modo completo** (cuando exista `alarms_catalog.py` con datos reales):
+**Full mode** (once `alarms_catalog.py` exists with real data):
 
 ```bash
-python watch_alarms.py            # detecta el catálogo solo
-python watch_alarms.py --baseline # forzar baseline aunque haya catálogo
+python watch_alarms.py            # detects the catalog on its own
+python watch_alarms.py --baseline # force baseline even if a catalog exists
 ```
 
-## Qué falta para cerrarlo
+## What's left to close this out
 
-1. **Nombres de campo reales** de la API de alarmas → `alarms_api.py --dump`.
-2. **`alarms_catalog.py`** con los registros/bits/límites del SPEC90 /
-   MAPA_DE_BITS.md (usar `alarms_catalog.example.py` como molde).
-3. **Hook `--inject-file`** en el simulador (`inject.py`) para provocar causas
-   activamente y ver FALLA_NO_DETECTADA / detección real. El baseline y la
-   correlación pasiva ya corren sin esto.
+1. **Real field names** from the alarms API → `alarms_api.py --dump`.
+2. **`alarms_catalog.py`** with the registers/bits/limits from SPEC90 /
+   MAPA_DE_BITS.md (use `alarms_catalog.example.py` as a template).
+3. **`--inject-file` hook** in the simulator (`inject.py`) to actively
+   trigger causes and see FAIL_NOT_DETECTED / real detection. The baseline
+   and passive correlation already run without this.

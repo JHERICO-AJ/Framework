@@ -1,4 +1,4 @@
-"""LoginPage — acciones del login. Los selectores están en login_locators.py."""
+"""LoginPage — login actions. The selectors live in login_locators.py."""
 from __future__ import annotations
 
 from framework_ui.base.base_page import BasePage

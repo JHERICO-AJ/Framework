@@ -1,21 +1,21 @@
 """
-source_modbus.py — la ÚNICA fuente de lectura del simulador (Modbus).
+modbus_source.py — the ONLY read source for the simulator (Modbus).
 
-Antes la lectura Modbus estaba en compare_pcs_power.py y REIMPLEMENTADA en
-alarms_oracle.py. Ahora vive acá y todos la usan. Esto es también el "lector de
-fuente" que el traspaso quería separar para poder enchufar otro simulador
-(p. ej. Fractal) cambiando solo este archivo.
+Before, the Modbus read lived in compare_pcs_power.py and was REIMPLEMENTED in
+oracle.py. Now it lives here and everyone uses it. This is also the "source
+reader" that the migration wanted to separate out, so another simulator can be
+plugged in (e.g. Fractal) by changing only this file.
 
-Contiene:
-  signed16 / w_to_kw       -> conversión de crudos
-  read_sim_total_kw()      -> suma de la potencia de los 3 PCS (capa cálculo)
-  LectorModbus             -> lee registros sueltos (para el oráculo de alarmas)
-  LectorFalso              -> lector de mentira para las pruebas offline
+Contains:
+  signed16 / w_to_kw       -> conversions of raw values
+  read_sim_total_kw()      -> sum of the power of the 3 PCS (calc layer)
+  ModbusReader             -> reads individual registers (for the alarm oracle)
+  FakeModbusReader         -> fake reader for offline tests
 
-SOLO LEE. pymodbus se importa recién cuando se conecta (para poder testear
-la lógica sin tenerlo instalado).
+READ ONLY. pymodbus is only imported when connecting (so the logic can be
+tested without having it installed).
 
-Correr la prueba:  python source_modbus.py --self-check
+Run the self-check:  python modbus_source.py --self-check
 """
 
 from __future__ import annotations
@@ -30,90 +30,91 @@ def signed16(raw):
 
 
 def w_to_kw(raw, sf):
-    """potencia de un PCS en kW = raw_con_signo * 10^sf / 1000 (W -> kW)."""
+    """power of a PCS in kW = signed_raw * 10^sf / 1000 (W -> kW)."""
     return signed16(raw) * (10 ** signed16(sf)) / 1000.0
 
 
 def _read(client, addr, count):
-    # pymodbus nuevo usa device_id=; el viejo usa slave=
+    # newer pymodbus uses device_id=; the old one uses slave=
     try:
         return client.read_holding_registers(addr, count=count, device_id=SIM_UNIT)
     except TypeError:
         return client.read_holding_registers(addr, count=count, slave=SIM_UNIT)
 
 
-# --- conexión persistente (optimización) -----------------------------------
-# Antes se abría y cerraba la conexión Modbus COMPLETA en cada lectura (una vez
-# por segundo). Ahora se abre UNA vez y se reusa; si el socket se cae, reconecta
-# solo y reintenta. Esto baja la latencia de cada ciclo y aguanta corridas largas.
-_cliente = None
+# --- persistent connection (optimization) -----------------------------------
+# Before, the WHOLE Modbus connection was opened and closed on every read (once
+# per second). Now it's opened ONCE and reused; if the socket drops, it
+# reconnects on its own and retries. This lowers the latency of each cycle and
+# holds up over long runs.
+_client = None
 
 
-def _get_cliente():
-    global _cliente
+def _get_client():
+    global _client
     from pymodbus.client import ModbusTcpClient
-    if _cliente is None:
-        _cliente = ModbusTcpClient(SIM_HOST, port=SIM_PORT)
-    if not getattr(_cliente, "connected", False):
-        if not _cliente.connect():
+    if _client is None:
+        _client = ModbusTcpClient(SIM_HOST, port=SIM_PORT)
+    if not getattr(_client, "connected", False):
+        if not _client.connect():
             raise ConnectionError(
-                f"no pude conectar al simulador {SIM_HOST}:{SIM_PORT} "
-                "(¿está corriendo el simulador?)")
-    return _cliente
+                f"couldn't connect to the simulator at {SIM_HOST}:{SIM_PORT} "
+                "(is the simulator running?)")
+    return _client
 
 
-def _reconectar():
-    global _cliente
+def _reconnect():
+    global _client
     try:
-        if _cliente is not None:
-            _cliente.close()
+        if _client is not None:
+            _client.close()
     except Exception:
         pass
-    _cliente = None
-    return _get_cliente()
+    _client = None
+    return _get_client()
 
 
-def _leer(addr, count):
-    """Lee registros con la conexión persistente; si falla, reconecta y reintenta 1 vez."""
+def _read_with_retry(addr, count):
+    """Reads registers with the persistent connection; if it fails, reconnects and retries once."""
     try:
-        rr = _read(_get_cliente(), addr, count)
+        rr = _read(_get_client(), addr, count)
         if rr.isError():
-            raise IOError(f"error leyendo registro {addr}")
+            raise IOError(f"error reading register {addr}")
         return rr.registers
     except Exception:
-        rr = _read(_reconectar(), addr, count)
+        rr = _read(_reconnect(), addr, count)
         if rr.isError():
-            raise IOError(f"error leyendo registro {addr}")
+            raise IOError(f"error reading register {addr}")
         return rr.registers
 
 
 def close_sim():
-    """Cierra la conexión persistente (opcional, al terminar el monitor)."""
-    global _cliente
+    """Closes the persistent connection (optional, when the monitor ends)."""
+    global _client
     try:
-        if _cliente is not None:
-            _cliente.close()
+        if _client is not None:
+            _client.close()
     finally:
-        _cliente = None
+        _client = None
 
 
 def read_sim_total_kw():
-    """Suma la potencia de los 3 PCS leyendo el simulador por Modbus.
-    Reusa la conexión persistente. Devuelve (total_kw, [(registro, kw), ...])."""
+    """Sums the power of the 3 PCS by reading the simulator over Modbus.
+    Reuses the persistent connection. Returns (total_kw, [(register, kw), ...])."""
     total = 0.0
-    detalle = []
+    details = []
     for w_addr, sf_addr in PCS_W_REGS:
-        raw = _leer(w_addr, 2)[0]
-        sf = _leer(sf_addr, 1)[0]
+        raw = _read_with_retry(w_addr, 2)[0]
+        sf = _read_with_retry(sf_addr, 1)[0]
         kw = w_to_kw(raw, sf)
         total += kw
-        detalle.append((w_addr, kw))
-    return total, detalle
+        details.append((w_addr, kw))
+    return total, details
 
 
-# --- lectores de registros sueltos (para el oráculo de alarmas) ------------
-class LectorModbus:
-    """Lee el simulador real por Modbus, registro por registro."""
+# --- individual register readers (for the alarm oracle) --------------------
+class ModbusReader:
+    """Reads the real simulator over Modbus, register by register."""
 
     def __init__(self, host=SIM_HOST, port=SIM_PORT, unit=SIM_UNIT):
         from pymodbus.client import ModbusTcpClient
@@ -121,16 +122,16 @@ class LectorModbus:
         self._unit = unit
         if not self._client.connect():
             raise ConnectionError(
-                f"no pude conectar al simulador {host}:{port} "
-                "(¿está corriendo el simulador?)")
+                f"couldn't connect to the simulator at {host}:{port} "
+                "(is the simulator running?)")
 
-    def leer_registro(self, addr):
+    def read_register(self, addr):
         try:
             rr = self._client.read_holding_registers(addr, count=1, device_id=self._unit)
         except TypeError:
             rr = self._client.read_holding_registers(addr, count=1, slave=self._unit)
         if rr.isError():
-            raise IOError(f"error leyendo registro {addr}")
+            raise IOError(f"error reading register {addr}")
         return rr.registers[0]
 
     def close(self):
@@ -140,15 +141,15 @@ class LectorModbus:
             pass
 
 
-class LectorFalso:
-    """Para pruebas: un dict {direccion: valor_crudo_16bits}."""
+class FakeModbusReader:
+    """For tests: a dict {address: raw_16bit_value}."""
 
-    def __init__(self, registros):
-        self._r = dict(registros)
+    def __init__(self, registers):
+        self._r = dict(registers)
 
-    def leer_registro(self, addr):
+    def read_register(self, addr):
         if addr not in self._r:
-            raise IOError(f"registro {addr} no está en el lector falso")
+            raise IOError(f"register {addr} is not in the fake reader")
         return self._r[addr]
 
     def close(self):
@@ -160,18 +161,18 @@ SAMPLE_SIM = [(17014, 14218, 2), (17114, 14176, 2), (17214, 7100, 2)]
 
 
 def _self_check():
-    print("(prueba de source_modbus — conversión + lector falso, sin red)\n")
-    detalle = [(a, w_to_kw(raw, sf)) for a, raw, sf in SAMPLE_SIM]
-    total = sum(kw for _, kw in detalle)
-    for a, kw in detalle:
+    print("(modbus_source test — conversion + fake reader, no network)\n")
+    details = [(a, w_to_kw(raw, sf)) for a, raw, sf in SAMPLE_SIM]
+    total = sum(kw for _, kw in details)
+    for a, kw in details:
         print(f"  reg {a}: {kw:9.1f} kW")
     print(f"  TOTAL: {total:.1f} kW")
     ok1 = signed16(65535) == -1 and signed16(1) == 1
-    lf = LectorFalso({100: 0b1000, 101: 5})
-    ok2 = lf.leer_registro(100) == 8 and lf.leer_registro(101) == 5
-    print(f"\n  signed16 -> {'OK' if ok1 else 'MAL'}")
-    print(f"  LectorFalso -> {'OK' if ok2 else 'MAL'}")
-    print("=> " + ("OK ✓" if ok1 and ok2 else "MAL ✗"))
+    fr = FakeModbusReader({100: 0b1000, 101: 5})
+    ok2 = fr.read_register(100) == 8 and fr.read_register(101) == 5
+    print(f"\n  signed16 -> {'OK' if ok1 else 'FAIL'}")
+    print(f"  FakeModbusReader -> {'OK' if ok2 else 'FAIL'}")
+    print("=> " + ("OK ✓" if ok1 and ok2 else "FAIL ✗"))
     return ok1 and ok2
 
 

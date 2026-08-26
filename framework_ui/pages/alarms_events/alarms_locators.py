@@ -1,1 +1,1 @@
-"""Selectores propios de la pantalla de alarmas (los de la tabla están en su componente)."""
+"""Selectors specific to the alarms screen (the table's own selectors live in its component)."""

@@ -1,4 +1,4 @@
-"""MonitoringService — el dominio MONITOREO (resumen/potencia). Devuelve SiteSummary."""
+"""MonitoringService — the MONITORING domain (summary/power). Returns SiteSummary."""
 from __future__ import annotations
 
 from framework_api.services.base_service import BaseService

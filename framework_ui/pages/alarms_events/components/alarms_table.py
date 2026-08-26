@@ -1,28 +1,11 @@
-"""AlarmsTable — componente: la tabla de alarmas. Maneja la virtualización
-(scrollea y acumula filas). Columnas confirmadas contra el HTML real.
+"""AlarmsTable — component: the alarms table. Handles virtualization
+(scrolls and accumulates rows). Columns confirmed against the real HTML.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from framework_ui.base.base_component import BaseComponent
 from framework_ui.pages.alarms_events.components import alarms_table_locators as loc
-
-
-@dataclass(frozen=True)
-class AlarmRow:
-    name: str
-    device: str
-    severity: str
-    status: str
-    first: str
-    last: str
-    subsystem: str
-    signal: str
-
-    @property
-    def key(self):
-        return (self.name, self.device)
+from framework_ui.pages.alarms_events.components.alarm_row import AlarmRow
 
 
 class AlarmsTable(BaseComponent):
@@ -51,7 +34,7 @@ class AlarmsTable(BaseComponent):
         return [self._parse_row(trs.nth(i)) for i in range(trs.count())]
 
     def all_rows(self, max_scroll=60):
-        """Scrollea la tabla virtualizada y acumula todas las filas (dedup)."""
+        """Scrolls the virtualized table and accumulates all rows (dedup)."""
         seen = {}
         container = self.page.locator(loc.SCROLL)
         prev = -1

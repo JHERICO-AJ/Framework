@@ -1,7 +1,7 @@
-"""BrowserFactory — abre/cierra Playwright en un solo lugar.
+"""BrowserFactory — opens/closes Playwright in one place.
 
-Saca el ciclo de vida del navegador de la lógica de lectura (antes vivía dentro
-de UiSession). Se usa como context manager, ideal para una fixture de pytest:
+Takes the browser's lifecycle out of the reading logic (it used to live inside
+UiSession). Used as a context manager, ideal for a pytest fixture:
 
     with BrowserFactory(headless=True) as page:
         ...
@@ -23,18 +23,18 @@ class BrowserFactory:
         from playwright.sync_api import sync_playwright
         self._pw = sync_playwright().start()
         self.browser = self._pw.chromium.launch(headless=self.headless)
-        # ignore_https_errors: el hub SignalR usa cert de desarrollo
+        # ignore_https_errors: the SignalR hub uses a development cert
         self.context = self.browser.new_context(ignore_https_errors=True)
         self.page = self.context.new_page()
         return self.page
 
     def __exit__(self, *exc):
-        for paso in (getattr(self.context, "close", None),
+        for step in (getattr(self.context, "close", None),
                      getattr(self.browser, "close", None),
                      getattr(self._pw, "stop", None)):
             try:
-                if paso:
-                    paso()
+                if step:
+                    step()
             except Exception:
                 pass
         return False

@@ -1,7 +1,7 @@
-"""AlarmsService — el dominio ALARMAS de la API. Devuelve models Alarm, no dicts."""
+"""AlarmsService — the ALARMS domain of the API. Returns Alarm models, not dicts."""
 from __future__ import annotations
 
-from framework_api.services.base_service import BaseService, unwrap
+from framework_api.services.base_service import ApiListResponse, BaseService
 from framework_api.models.alarm import Alarm
 
 
@@ -10,7 +10,8 @@ class AlarmsService(BaseService):
 
     def get_alarms(self) -> list[Alarm]:
         payload = self.client.get(self.PATH)
-        return [Alarm.from_json(d) for d in unwrap(payload) if isinstance(d, dict)]
+        items = ApiListResponse(payload).items()
+        return [Alarm.from_json(d) for d in items if isinstance(d, dict)]
 
     def get_open_alarms(self) -> list[Alarm]:
         return [a for a in self.get_alarms() if a.is_open]

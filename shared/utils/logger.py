@@ -1,4 +1,4 @@
-"""Logger único con formato compartido."""
+"""Single logger with a shared format."""
 import logging
 
 logging.basicConfig(level=logging.INFO,

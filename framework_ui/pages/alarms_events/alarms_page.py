@@ -1,4 +1,4 @@
-"""AlarmsPage — pantalla Alarms & Events. Delega la tabla al componente."""
+"""AlarmsPage — Alarms & Events screen. Delegates the table to the component."""
 from __future__ import annotations
 
 from framework_ui.base.base_page import BasePage

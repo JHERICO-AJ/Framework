@@ -1,14 +1,15 @@
 """
-timeanchor.py — ANCLAJE POR TIEMPO, en un solo lugar.
+time_anchor.py — TIME ANCHORING, in one place.
 
-OmniOps va un "tick" atrasado respecto al simulador. En vez de comparar contra
-el simulador de ahora, guardamos un historial y comparamos contra el valor del
-MISMO instante (por timestamp). Esta lógica estaba copiada en los dos watchers.
+OmniOps runs one "tick" behind the simulator. Instead of comparing against the
+simulator's current value, we keep a history and compare against the value at
+the SAME instant (by timestamp). This logic used to be duplicated in the two
+watchers.
 
-  historial = lista de (epoch, kw)
-  match_buffer(historial, instante) -> ((epoch, kw), gap_en_segundos)
+  history = list of (epoch, kw)
+  match_buffer(history, instant) -> ((epoch, kw), gap_in_seconds)
 
-Correr la prueba:  python timeanchor.py --self-check
+Run the self-check:  python time_anchor.py --self-check
 """
 
 from __future__ import annotations
@@ -19,8 +20,8 @@ from shared.config.settings import BUFFER_S
 
 
 def match_buffer(buffer, target_epoch):
-    """Del historial, el valor cuya hora esté MÁS CERCA del instante buscado.
-    Devuelve ((epoch, kw), gap) o (None, None) si el historial está vacío."""
+    """From the history, the value whose time is CLOSEST to the target instant.
+    Returns ((epoch, kw), gap) or (None, None) if the history is empty."""
     best, best_gap = None, None
     for ep, kw in buffer:
         gap = abs(ep - target_epoch)
@@ -29,26 +30,26 @@ def match_buffer(buffer, target_epoch):
     return best, best_gap
 
 
-def podar(buffer, now, ventana_s=BUFFER_S):
-    """Deja en el historial solo lo más nuevo que `ventana_s` segundos."""
-    buffer[:] = [(e, v) for e, v in buffer if now - e <= ventana_s]
+def prune(buffer, now, window_s=BUFFER_S):
+    """Keeps only what's newer than `window_s` seconds in the history."""
+    buffer[:] = [(e, v) for e, v in buffer if now - e <= window_s]
     return buffer
 
 
 def _self_check():
-    print("(prueba de anclaje — sin red)\n")
-    # el simulador pasó por 100,200,300,400,500; OmniOps muestra el instante 1002
+    print("(anchoring test — no network)\n")
+    # the simulator went through 100,200,300,400,500; OmniOps shows instant 1002
     buffer = [(1000.0, 100), (1001.0, 200), (1002.0, 300),
               (1003.0, 400), (1004.0, 500)]
     (ep, kw), gap = match_buffer(buffer, 1002.0)
     ok = kw == 300 and gap == 0.0
-    print(f"  match 1002 -> kw={kw} gap={gap}  {'OK' if ok else 'MAL'}")
-    # poda: con now=1004 y ventana 2s deben quedar los de 1002,1003,1004
+    print(f"  match 1002 -> kw={kw} gap={gap}  {'OK' if ok else 'FAIL'}")
+    # pruning: with now=1004 and a 2s window, 1002,1003,1004 should remain
     b = list(buffer)
-    podar(b, now=1004.0, ventana_s=2.0)
+    prune(b, now=1004.0, window_s=2.0)
     ok2 = [v for _, v in b] == [300, 400, 500]
-    print(f"  poda (ventana 2s) -> {[v for _, v in b]}  {'OK' if ok2 else 'MAL'}")
-    print("\n=> " + ("OK ✓" if ok and ok2 else "MAL ✗"))
+    print(f"  prune (2s window) -> {[v for _, v in b]}  {'OK' if ok2 else 'FAIL'}")
+    print("\n=> " + ("OK ✓" if ok and ok2 else "FAIL ✗"))
     return ok and ok2
 
 

@@ -1,4 +1,4 @@
-"""MonitoringPage — pantalla Data & Monitoring. Delega la tarjeta al componente."""
+"""MonitoringPage — Data & Monitoring screen. Delegates the card to the component."""
 from __future__ import annotations
 
 from framework_ui.base.base_page import BasePage

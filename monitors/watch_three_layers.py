@@ -1,5 +1,5 @@
-"""watch_three_layers — monitor EN VIVO de las 3 capas de potencia:
-simulador vs API vs pantalla (UI). Abre el navegador una vez y observa en bucle.
+"""watch_three_layers — LIVE monitor of the 3 power layers:
+simulator vs API vs screen (UI). Opens the browser once and watches in a loop.
     python -m monitors.watch_three_layers
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ from framework_ui.pages.monitoring.monitoring_page import MonitoringPage
 def run():
     svc = MonitoringService(ApiClient(BASE_URL))
     creds = load_credentials()
-    print("watch_three_layers — sim vs API vs UI (Ctrl+C para salir)\n")
+    print("watch_three_layers — sim vs API vs UI (Ctrl+C to exit)\n")
     factory = BrowserFactory()
     page = factory.__enter__()
     try:
@@ -34,11 +34,11 @@ def run():
             ui_ok = (ui_kw is not None and api_kw is not None and
                      abs(round(ui_kw, 1) - round(float(api_kw), 1)) <= UI_TOL_KW)
             print(f"sim={sim_kw:8.0f}  api={api_kw}  ui={ui_kw}   "
-                  f"cálculo:{'PASA' if calc_ok else 'FALLA'}  "
-                  f"pantalla:{'PASA' if ui_ok else 'FALLA'}")
+                  f"calc:{'PASS' if calc_ok else 'FAIL'}  "
+                  f"screen:{'PASS' if ui_ok else 'FAIL'}")
             time.sleep(OMNIOPS_EVERY_S)
     except KeyboardInterrupt:
-        print("\nfin.")
+        print("\ndone.")
     finally:
         factory.__exit__(None, None, None)
         close_sim()
