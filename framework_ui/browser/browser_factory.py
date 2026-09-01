@@ -23,8 +23,14 @@ class BrowserFactory:
         from playwright.sync_api import sync_playwright
         self._pw = sync_playwright().start()
         self.browser = self._pw.chromium.launch(headless=self.headless)
-        # ignore_https_errors: the SignalR hub uses a development cert
-        self.context = self.browser.new_context(ignore_https_errors=True)
+        # ignore_https_errors: the SignalR hub uses a development cert.
+        # viewport: confirmed 2026-08-31 that Playwright's default (1280x720)
+        # is narrow enough that fixed UI elements (KPI cards, topbar) overlap
+        # the Fleet Map region, blocking real (non-force) clicks on markers
+        # -- 1920x1080 matches a normal desktop and clears that up.
+        self.context = self.browser.new_context(
+            ignore_https_errors=True, viewport={"width": 1920, "height": 1080})
+        self.context.tracing.start(screenshots=True, snapshots=True, sources=True)
         self.page = self.context.new_page()
         return self.page
 

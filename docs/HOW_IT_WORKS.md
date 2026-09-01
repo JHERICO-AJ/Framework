@@ -145,7 +145,54 @@ for a system that doesn't close alarms).
 
 ---
 
-## 7. Why the structure is separated this way
+## 7. Fleet Overview: a second verification style (read-only, no injection)
+
+Everything above (§1-6) is the **alarm-injection oracle**: modify a register
+in transit, wait for OmniOps to react, check the timing and the cause. Fleet
+Overview (`tests/ui/fleet_overview/`) verifies a **different kind of
+claim** — not "did OmniOps generate the right alarm for a condition I just
+created," but "does OmniOps correctly calculate and display values it's
+already computing from real, ongoing telemetry" (fleet-wide site counts,
+per-site Power, alarm counts, availability percentages). There's nothing to
+inject there — the proxy/injection mechanism doesn't apply.
+
+The comparison is the same *differential* idea (read the ground truth
+independently, compare against what OmniOps produces), just with 3 possible
+"ground truths" instead of 1, picked per field based on where the real
+source of truth actually lives:
+
+- **The simulator directly** (`shared/datasource/fractal_modbus_source.py`,
+  Modbus TCP, bypassing OmniOps entirely) — for Power, which OmniOps
+  doesn't persist in any queryable table.
+- **The database** (`shared/datasource/db_source.py`, via the `db_conn`
+  fixture, read-only) — for anything OmniOps DOES persist (alarm counts,
+  site identities, availability history) and that a UI-only check can't
+  prove is *correct*, only that it's *consistent with itself*.
+- **The API directly** (`framework_api/services/`) — as a third layer
+  alongside the DB/simulator, to distinguish a backend calculation bug
+  (API disagrees with the DB/simulator) from a UI rendering bug (API is
+  right, the screen shows something else). See
+  `test_fleet_overview_sites_list_values.py`'s 3-layer Power coverage for
+  a worked example: simulator→API isolates the backend; API→UI isolates
+  the screen.
+
+A real-world case this design caught: comparing the simulator's *current*
+tick straight against OmniOps' *current* displayed value looks broken
+during any fast-moving period (e.g. right after the simulator restarts and
+ramps up) — not because anything is wrong, but because a single
+point-in-time comparison can't account for real ingestion latency (typically
+1-20s, measured and reported by the tests, not assumed). The fix used
+throughout this area is a **convergence window**: build a short rolling
+history of simulator samples and check whether OmniOps' current value
+matches ANY sample in that recent history, not just the newest one. The
+non-asserting live monitor (`monitors/watch_fleet_power.py`) intentionally
+does the naive instantaneous comparison instead — it's for demo/debug, not
+a source of truth — which is why it can show more "FAIL" noise than the
+actual pytest tests during a ramp.
+
+---
+
+## 8. Why the structure is separated this way
 
 - **The API layer knows nothing about Modbus.** If an "API" file started
   injecting registers, it would be a sign that it's actually cross-layer.

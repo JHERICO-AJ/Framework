@@ -5,3 +5,4 @@ pymodbus==3.7.4        # MUST match the simulator's version (3.14 breaks ModbusS
 playwright>=1.40       # UI layer (run also: playwright install chromium)
 pytest>=8.0            # test runner
 pytest-html>=4.1       # HTML reports (pytest --html=reports/report.html)
+psycopg2-binary>=2.9   # read-only cross-layer DB checks (tests/conftest.py: db_conn)

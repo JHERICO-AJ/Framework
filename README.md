@@ -112,6 +112,7 @@ compares in UTC and displays in local time.
 python -m monitors.watch_power           # simulator vs API (power)
 python -m monitors.watch_three_layers    # simulator vs API vs UI
 python -m monitors.watch_alarms          # live alarms (you inject from another terminal)
+python -m monitors.watch_fleet_power     # Fleet Overview: simulator vs API vs UI, all 6 BOLIVIA sites
 ```
 
 ---
@@ -130,10 +131,20 @@ python -m monitors.watch_alarms          # live alarms (you inject from another 
 | A check (pass/fail) | `tests/` (the assert goes here) |
 | A live monitor | `monitors/` |
 | An investigation script | `tools/` |
+| A read-only Postgres query used as "expected value" | `shared/datasource/` (e.g. `db_source.py`), via the `db_conn` fixture |
 
 Rule of thumb: if something needs the system to respond, it's not `domain`.
 If it crosses layers (simulator + API, or API + UI), it's `cross_layer` (a
 test) or a `tools/` command. The API layer must never know about Modbus.
+
+**Fleet Overview (Fractal sites)** is a second cross-layer test area under
+`tests/ui/fleet_overview/` + `framework_ui/pages/fleet_overview/` — same
+Page Object conventions as the rest of `framework_ui`, but a different
+verification style than the alarm-injection oracle above: it's **read-only**
+(no proxy, no injection), comparing the simulator's own live Modbus reading,
+OmniOps' DB, and OmniOps' API/UI against each other for values the
+backend calculates from real telemetry (Power, alarm counts, availability).
+See `docs/HOW_IT_WORKS.md` §7 for the reasoning behind that approach.
 
 ---
 

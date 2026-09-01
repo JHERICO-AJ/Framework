@@ -28,6 +28,10 @@ def _env_bool(name, default):
 # --- OmniOps (API) ----------------------------------------------------------
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:5173")
 
+# "microsoft" (SSO, default -- matches the credentials currently in .env) or
+# "native" (OmniOps' own email/password form, still present on /login).
+LOGIN_METHOD = os.environ.get("LOGIN_METHOD", "microsoft")
+
 # Default timeout (seconds) for every HTTP call made against OmniOps.
 HTTP_TIMEOUT_S = float(os.environ.get("HTTP_TIMEOUT_S", 10))
 SITE_ID = "10000000-0000-0000-0000-000000000001"
@@ -52,6 +56,29 @@ PCS_W_REGS = [(17014, 17015), (17114, 17115), (17214, 17215)]  # power W per PCS
 SIM_REAL_HOST = "127.0.0.1"
 SIM_REAL_PORT = 5021
 INJECT_STATE_FILE = os.path.join(ROOT, "inject_state.json")
+
+# --- Fractal simulators (per-BOLIVIA-site Modbus TCP, for cross-layer power
+# checks -- shared/datasource/fractal_modbus_source.py). {site_name: (port,
+# unit_id)}. Ports come from launch_sites.py's own startup log each run
+# (auto-assigned, confirmed stable across restarts as of 2026-08-28); unit_ids
+# come from each site's fractal-*.local.yaml (modbus_unit_id).
+FRACTAL_SITE_MODBUS = {
+    "BOLIVIA":   (5020, 9),
+    "BOLIVIA 1": (5021, 7),
+    "BOLIVIA 2": (5022, 8),
+    "BOLIVIA 3": (5023, 10),
+    "BOLIVIA 4": (5024, 11),
+    "BOLIVIA 5": (5025, 12),
+}
+
+# --- DB (read-only cross-layer checks) ---------------------------------------
+# All None if unset -- tests/conftest.py's db_conn fixture SKIPS (not fails)
+# when any of these is missing, same pattern as require_omniops.
+DB_HOST = os.environ.get("DB_HOST")
+DB_PORT = os.environ.get("DB_PORT", "5432")
+DB_NAME = os.environ.get("DB_NAME")
+DB_USER = os.environ.get("DB_USER")
+DB_PASSWORD = os.environ.get("DB_PASSWORD")
 
 # --- Launcher (bring up sim + proxy + edge in order) ------------------------
 # Path to the simulator/edge repo (omniops-bess-edge). By default it looks for it
@@ -102,6 +129,13 @@ HEADLESS = _env_bool("HEADLESS", False)  # True = hidden browser (starts lighter
 # affect speed under normal conditions (everything PASSing).
 CAPTURE_FAILURES = _env_bool("CAPTURE_FAILURES", True)
 CAPTURES_DIR = "reports/captures"
+
+# Playwright trace (step-by-step replay: screenshots, DOM snapshots, network,
+# console -- viewable with `playwright show-trace <file>.zip`, same UI as
+# Playwright Test's trace viewer). Same "only on failure" principle as
+# CAPTURE_FAILURES -- see tests/conftest.py's _trace_per_test fixture.
+CAPTURE_TRACES = _env_bool("CAPTURE_TRACES", True)
+TRACES_DIR = "reports/traces"
 
 # Alternative command (used by tools/sim_launcher.py, which brings up sim+edge
 # together via launch_site.py). For injection use the launcher (tools/start_alarms_stack).

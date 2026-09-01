@@ -6,6 +6,8 @@ shared/.
 """
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 from shared.auth.factory import make_auth
 from shared.config.settings import HTTP_TIMEOUT_S
 from shared.utils.logger import get_logger
@@ -21,6 +23,12 @@ class ApiClient:
 
     def get(self, path, **params):
         url = self.base_url + path
-        log.debug("GET %s %s", url, params or "")
+        if params:
+            # BUG FIXED 2026-08-31: this used to accept **params, log them,
+            # and then silently drop them -- every call ever made with a
+            # query param (e.g. FleetService's days=N) actually hit the
+            # endpoint's default, not the value the caller asked for.
+            url = f"{url}?{urlencode(params)}"
+        log.debug("GET %s", url)
         # authorized_get from shared.auth accepts the already-built URL
         return self.auth.authorized_get(url)
