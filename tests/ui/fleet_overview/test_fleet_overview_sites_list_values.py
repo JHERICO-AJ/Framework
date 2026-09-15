@@ -286,6 +286,39 @@ def test_last_seen_is_populated_when_online(require_omniops, site_row):
     assert text not in ("", "—", "-", "Never"), f"expected a real Last Seen value, got {text!r}"
 
 
+def test_last_seen_shows_real_time_not_never_when_offline(require_omniops, fleet_overview_page):
+    """Closes a gap flagged 2026-09-03: "Never" is only the CORRECT Last
+    Seen value for a site that has NEVER received telemetry -- a site
+    that WAS online before and is currently Offline (e.g. the simulator
+    briefly disconnecting, a real and frequent occurrence in this
+    environment) should still show the real elapsed time since its last
+    telemetry, not reset to "Never".
+
+    We can assert this deterministically (not just "if we happen to see
+    it") because we know for a fact all 6 BOLIVIA sites have received
+    telemetry at some point -- we're the ones sending it. So ANY of them
+    currently Offline is a valid case: it must show a real elapsed time,
+    never the "Never" placeholder that's only correct for a site with no
+    telemetry history at all (e.g. a genuinely new/unconfigured site)."""
+    sites = fleet_overview_page.sites_list()
+    offline_row = None
+    for name in ALL_BOLIVIA_SITE_NAMES:
+        row = sites.row_index_by_site_name(name)
+        if row is not None and sites.status_text(row).strip().upper() == "OFFLINE":
+            offline_row = (name, row)
+            break
+
+    if offline_row is None:
+        pytest.skip("no BOLIVIA site is Offline right now -- can't exercise "
+                     "the offline-with-history case")
+
+    name, row = offline_row
+    text = sites.last_seen_text(row)
+    assert text.strip() != "Never", (
+        f"{name!r} is Offline but has definitely received telemetry before (we send it "
+        f"ourselves) -- Last Seen should show the real elapsed time, not 'Never'")
+
+
 def test_status_column_matches_db_when_critical(require_omniops, site_row, db_conn, site_id):
     """Confirmed gap closed 2026-08-31: the Status pill TEXT was never
     cross-layer verified before (only Critical, Power, Last Seen were).

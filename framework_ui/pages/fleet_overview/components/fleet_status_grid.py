@@ -17,8 +17,23 @@ class FleetStatusGrid(BaseComponent):
     def card_by_title(self, title):
         return self.cards().filter(has=self.page.locator(loc.CARD_LABEL, has_text=title))
 
-    def card_value(self, title):
-        return self.card_by_title(title).locator(loc.CARD_VALUE).inner_text().strip()
+    def card_value(self, title, timeout=5000):
+        """KPI cards show a "..." loading placeholder while their value is
+        being fetched, confirmed 2026-09-04 (Connected Sites briefly reads
+        "..." right after navigation, then resolves to the real "7 / 9"
+        within a couple seconds) -- same "looks fine, quietly wrong" trap
+        as the other sections' loading states. Wait past it instead of
+        reading mid-refresh."""
+        locator = self.card_by_title(title).locator(loc.CARD_VALUE)
+        text = locator.inner_text().strip()
+        if text == "...":
+            locator.page.wait_for_function(
+                "el => el.textContent.trim() !== '...'",
+                arg=locator.element_handle(),
+                timeout=timeout,
+            )
+            text = locator.inner_text().strip()
+        return text
 
     def badge_kind(self, index):
         """'current' if the card's badge is the "CURRENT" style, else 'range'
