@@ -75,6 +75,41 @@ def test_map_marker_critical_status_is_red(require_omniops, fleet_overview_page)
         f"critical marker isn't red: rgb({red}, {green}, {blue})")
 
 
+def test_map_marker_online_status_is_green(require_omniops, fleet_overview_page):
+    """Companion to the Critical=red/Warning=blue cases: Online-status
+    markers are GREEN. Added 2026-09-02 -- until now no test exercised
+    Online specifically (coverage happened to lean on whichever status the
+    6 BOLIVIA sites were in, usually Critical); now that they're healthy
+    this closes that gap instead of leaving it untested by coincidence."""
+    fmap = fleet_overview_page.map()
+    marker = fmap.marker_by_status("online")
+    if marker is None:
+        pytest.skip("no online-status site right now")
+    red, green, blue = _rgb_channels(fmap.marker_computed_color(marker))
+    assert green > red and green > blue, (
+        f"online marker isn't green: rgb({red}, {green}, {blue})")
+
+
+def test_map_marker_offline_status_is_gray(require_omniops, fleet_overview_page):
+    """Companion to the other 3 status-color cases. Offline's real computed
+    color is rgb(100, 116, 139) -- confirmed live 2026-09-02 -- a desaturated
+    slate gray, NOT a vivid hue like the other 3 statuses (e.g. Warning's
+    blue). Checking "which channel is highest" (the pattern used for
+    red/blue/green above) doesn't distinguish this gray from a vivid blue,
+    since blue is still numerically the highest channel here too -- the
+    real distinguishing feature is LOW SATURATION (channels close
+    together), so that's what this asserts instead."""
+    fmap = fleet_overview_page.map()
+    marker = fmap.marker_by_status("offline")
+    if marker is None:
+        pytest.skip("no offline-status site right now")
+    red, green, blue = _rgb_channels(fmap.marker_computed_color(marker))
+    spread = max(red, green, blue) - min(red, green, blue)
+    assert spread < 60, (
+        f"offline marker doesn't look gray (channels too spread out to be "
+        f"desaturated): rgb({red}, {green}, {blue})")
+
+
 # Qase #14 (site info popup, open + dismiss) — RESOLVED 2026-08-31, see
 # test_fleet_overview_map_popup.py. Earlier attempts here found nothing
 # because of a narrow default viewport + clicking the marker's translucent

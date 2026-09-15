@@ -5,12 +5,21 @@ import datetime
 import re
 
 
-def parse_kw(text):
-    """'2.486,5 kW' / '2486.5' -> 2486.5 (or None)."""
+def parse_first_number(text):
+    """'SoC range: 49.1-49.1%' / '2.486,5 kW' / '2486.5' -> 49.1 / 2486.5 /
+    2486.5 (the first number found, or None). Unit-agnostic -- use this
+    directly for anything that isn't specifically kW (percentages, volts,
+    amps, ...); parse_kw is a thin, descriptively-named wrapper for the
+    kW case."""
     if not text:
         return None
     m = re.search(r"-?\d[\d,]*\.?\d*", text.replace(",", ""))
     return float(m.group()) if m else None
+
+
+def parse_kw(text):
+    """'2.486,5 kW' / '2486.5' -> 2486.5 (or None)."""
+    return parse_first_number(text)
 
 
 def parse_api_datetime(text):
@@ -24,6 +33,19 @@ def parse_api_datetime(text):
         except ValueError:
             continue
     return None
+
+
+def parse_value_and_source(text):
+    """'25.0°C (On-site)' -> (25.0, "On-site"); '50% (API)' -> (50.0, "API");
+    '—' (no numeric value at all) -> (None, None). Generic across any
+    metric that pairs a numeric reading with a trailing "(Source)" flag --
+    used by Environmental Monitoring's Ambient Temp/Humidity (docs/OF-151.txt),
+    and reusable anywhere else the same "(On-site)"/"(API)" convention shows up."""
+    if not text:
+        return None, None
+    source_match = re.search(r"\(([^)]+)\)\s*$", text)
+    source = source_match.group(1) if source_match else None
+    return parse_first_number(text), source
 
 
 def extreme_raw_value(dir_, type_):

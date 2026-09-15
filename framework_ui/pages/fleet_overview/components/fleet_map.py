@@ -24,6 +24,38 @@ class FleetMap(BaseComponent):
         locator = self.page.locator(f'{loc.MARKER}[fill="var(--{status})"]')
         return locator.first if locator.count() > 0 else None
 
+    def clickable_marker_by_site_name(self, site_name):
+        """Same "solid dot, not the halo" targeting as
+        clickable_marker_by_status, but matched by SITE NAME instead of
+        status -- for cases that need a SPECIFIC site (e.g. cross-layer
+        Power checks), not just "any Critical site". Each marker carries
+        `aria-describedby="leaflet-tooltip-N"` pointing at its hover
+        tooltip element -- but confirmed 2026-09-02: that attribute isn't
+        present in the DOM until the marker has actually been hovered at
+        least once (Leaflet creates the tooltip on demand, not eagerly).
+        Hovers each candidate marker first, then reads the attribute.
+
+        NOTE: if multiple sites' markers are stacked at/near the same
+        coordinates (all 6 BOLIVIA sites sharing near-identical lat/lng is
+        a known past config gap here), hovering by bounding box may land
+        on whichever marker is topmost at that pixel, not necessarily the
+        Nth one in DOM order -- this method can misidentify a site in that
+        case. It's reliable once sites have distinct coordinates.
+
+        Returns None if no marker matches."""
+        dots = self.page.locator(f'{loc.MARKER}[fill-opacity="1"]')
+        for i in range(dots.count()):
+            dot = dots.nth(i)
+            self.hover_marker(dot)
+            self.page.wait_for_timeout(200)
+            tooltip_id = dot.get_attribute("aria-describedby")
+            if not tooltip_id:
+                continue
+            name = self.page.locator(f"#{tooltip_id}").inner_text().strip()
+            if name == site_name:
+                return dot
+        return None
+
     def clickable_marker_by_status(self, status):
         """Same as marker_by_status, but only the solid DOT (fill-opacity=1)
         -- the translucent halo sitting under it blocks a real click (see

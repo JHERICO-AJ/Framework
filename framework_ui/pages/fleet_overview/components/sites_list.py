@@ -20,9 +20,14 @@ class SitesList(BaseComponent):
         return row.locator(loc.CELL).nth(col_index).inner_text().strip()
 
     def row_index_by_site_name(self, name):
+        """Exact match on the Site column only -- a substring check against
+        the whole row's text (the previous approach) wrongly matches
+        "BOLIVIA 3"/"BOLIVIA 4"/etc. when looking up "BOLIVIA", since
+        "BOLIVIA" is a substring of those other site names too."""
         rows = self.page.locator(loc.ROW)
+        col = self._col_index("SITE")
         for i in range(rows.count()):
-            if name in rows.nth(i).inner_text():
+            if rows.nth(i).locator(loc.CELL).nth(col).inner_text().strip() == name:
                 return i
         return None
 

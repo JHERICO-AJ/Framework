@@ -19,12 +19,10 @@ an angle/radius sweep around an assumed center missed the smaller slice.
 import pytest
 
 from framework_api.services.events_service import EventsService
-from shared.datasource.db_source import get_site_ids
-from shared.datasource.db_source import count_alarms_by_subsystem
+from shared.datasource.db_source import get_all_site_ids
+from shared.datasource.db_source import count_alarms_by_subsystem_windowed
 
 pytestmark = pytest.mark.ui
-
-BOLIVIA_SITE_NAMES = ["BOLIVIA", "BOLIVIA 1", "BOLIVIA 2", "BOLIVIA 3", "BOLIVIA 4", "BOLIVIA 5"]
 
 
 def test_hourly_chart_tooltips_match_api(require_omniops, fleet_overview_page, api_client):
@@ -59,12 +57,15 @@ def test_subsystem_pie_tooltips_match_api(require_omniops, fleet_overview_page, 
     display names, e.g. "PCS / Inverter", are a frontend-side relabeling
     of the API's raw keys, e.g. "TRANSFORMER_PCS", with no confirmed
     mapping to assert against directly)."""
+    api_rows = EventsService(api_client).get_subsystem_distribution(hours=24)
+    if not api_rows:
+        pytest.skip("no subsystem alarms right now (BOLIVIA is alarm-free) -- "
+                     "an empty pie has no slices to hover, not a rendering bug")
+    total = sum(row["value"] for row in api_rows)
+
     analytics = fleet_overview_page.alarms_analytics()
     tooltip_by_name = analytics.scan_subsystem_pie()
     assert tooltip_by_name, "the tooltip scan found no pie slices at all -- chart not rendering as expected?"
-
-    api_rows = EventsService(api_client).get_subsystem_distribution(hours=24)
-    total = sum(row["value"] for row in api_rows)
 
     tooltip_counts_found = {count for count, _pct in tooltip_by_name.values()}
     mismatches = []
@@ -83,14 +84,25 @@ def test_subsystem_pie_tooltips_match_api(require_omniops, fleet_overview_page, 
 def test_subsystem_pie_tooltip_counts_sum_matches_db(require_omniops, fleet_overview_page, db_conn):
     """A further cross-layer hop past the API: the tooltip counts read
     straight off the canvas must sum to the same total as a raw DB count
-    of BOLIVIA alarms by subsystem for the same window -- proving the
-    rendered pixels, not just the API response, agree with the DB."""
+    of alarms by subsystem for the same window -- proving the rendered
+    pixels, not just the API response, agree with the DB. Fleet-wide
+    (all_site_ids), NOT scoped to BOLIVIA -- confirmed 2026-09-02 this pie
+    aggregates the whole shared fleet, same incident that surfaced the
+    same issue for the Fleet Status Summary alarm cards (see
+    test_fleet_overview_values.py's module docstring). WINDOWED (hours=24)
+    to match GET /api/events/analytics/subsystem-distribution?hours= --
+    the flat, all-time count previously produced a false "UI undercounts"
+    failure whenever an alert's LastOccurred had aged out of the 24h
+    window (see fleet_overview_new_bug_critical_causes memory)."""
+    site_ids = get_all_site_ids(db_conn)
+    expected = count_alarms_by_subsystem_windowed(db_conn, site_ids, hours=24)
+    if not expected:
+        pytest.skip("no subsystem alarms right now (fleet is alarm-free) -- "
+                     "an empty pie has no slices to hover, not a rendering bug")
+
     analytics = fleet_overview_page.alarms_analytics()
     tooltip_by_name = analytics.scan_subsystem_pie()
     assert tooltip_by_name, "the tooltip scan found no pie slices at all"
-
-    site_ids = list(get_site_ids(db_conn, BOLIVIA_SITE_NAMES).values())
-    expected = count_alarms_by_subsystem(db_conn, site_ids)
 
     actual_total = sum(count for count, _pct in tooltip_by_name.values())
     expected_total = sum(expected.values())

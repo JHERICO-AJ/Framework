@@ -92,10 +92,9 @@ EDGE_CONFIG = os.path.join(SIM_REPO_DIR, "data", "generated_configs",
                            f"site_snapshot_config_{SITE_ID}.yaml")
 SIM_TICK_S = 5          # how often (seconds) the simulator sends data
 # Python interpreter used to run the EDGE (has its own deps: pyyaml, dotenv, azure SDK).
-# Machine-specific: set EDGE_PYTHON in .env. Falls back to the interpreter that's
-# already known to work on this dev machine if not set.
-EDGE_PYTHON = os.environ.get(
-    "EDGE_PYTHON", r"C:\Users\AJ\AppData\Local\Programs\Python\Python314\python.exe")
+# Machine-specific: set EDGE_PYTHON in .env. No hardcoded machine path here -- if unset,
+# this is empty and the caller (tools/start_alarms_stack.py) falls back to sys.executable.
+EDGE_PYTHON = os.environ.get("EDGE_PYTHON", "")
 
 # --- Tolerances for the CALC layer (sim vs API) -----------------------------
 TOL_ABS_KW = 50.0
