@@ -1,22 +1,22 @@
 """
-sim_launcher.py — levanta (y baja) el simulador desde el framework.
+sim_launcher.py — starts (and stops) the simulator from the framework.
 
-Lanza el simulador como un subproceso (el mismo comando que corrías a mano) y
-espera a que el puerto Modbus esté aceptando conexiones antes de seguir, así no
-arrancás a monitorear "en el aire".
+Launches the simulator as a subprocess (the same command you'd run by hand)
+and waits for the Modbus port to accept connections before continuing, so you
+don't start monitoring "into thin air".
 
-Ajustá en config.py: SIM_REPO_DIR (ruta del repo del simulador), SIM_LAUNCH_CMD,
-SIM_TICK_S. Usa SITE_ID / SIM_HOST / SIM_PORT que ya están en config.
+Adjust in settings.py: SIM_REPO_DIR (path to the simulator repo), SIM_LAUNCH_CMD,
+SIM_TICK_S. Uses SITE_ID / SIM_HOST / SIM_PORT already in settings.
 
-Uso directo (levanta y deja corriendo hasta Ctrl+C):
+Direct use (starts it and leaves it running until Ctrl+C):
     python sim_launcher.py
 
-Uso desde código:
-    from sim_launcher import Simulador
-    with Simulador() as sim:        # lo levanta y lo baja al salir
-        ...                          # correr los monitores acá
+Use from code:
+    from sim_launcher import Simulator
+    with Simulator() as sim:        # starts it and stops it on exit
+        ...                          # run the monitors here
 
-Probar la lógica de espera de puerto (sin el simulador):
+Test the port-waiting logic (without the simulator):
     python sim_launcher.py --self-check
 """
 
@@ -27,11 +27,11 @@ import subprocess
 import sys
 import time
 
-from config import (SIM_HOST, SIM_PORT, SITE_ID,
+from shared.config.settings import (SIM_HOST, SIM_PORT, SITE_ID,
                     SIM_REPO_DIR, SIM_LAUNCH_CMD, SIM_TICK_S)
 
 
-def puerto_abierto(host, port, timeout=0.5):
+def port_open(host, port, timeout=0.5):
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True
@@ -39,40 +39,40 @@ def puerto_abierto(host, port, timeout=0.5):
         return False
 
 
-def esperar_puerto(host, port, timeout=30.0, cada=0.5):
-    """Espera hasta que el puerto acepte conexiones. True si lo logró a tiempo."""
+def wait_for_port(host, port, timeout=30.0, every=0.5):
+    """Waits until the port accepts connections. True if it succeeded in time."""
     t0 = time.time()
     while time.time() - t0 < timeout:
-        if puerto_abierto(host, port):
+        if port_open(host, port):
             return True
-        time.sleep(cada)
+        time.sleep(every)
     return False
 
 
-class Simulador:
+class Simulator:
     def __init__(self, site=SITE_ID, port=SIM_PORT, tick=SIM_TICK_S, host=SIM_HOST):
         self.site, self.port, self.tick, self.host = site, port, tick, host
         self.proc = None
 
-    def start(self, esperar=True, timeout=30.0):
-        if puerto_abierto(self.host, self.port):
-            print(f"El simulador ya está escuchando en {self.host}:{self.port} "
-                  "(no lo levanto de nuevo).")
+    def start(self, wait=True, timeout=30.0):
+        if port_open(self.host, self.port):
+            print(f"The simulator is already listening on {self.host}:{self.port} "
+                  "(not starting it again).")
             return self
         cmd = [str(p).format(site=self.site, port=self.port, tick=self.tick)
                for p in SIM_LAUNCH_CMD]
-        print("Levantando simulador:", " ".join(cmd), f"(cwd={SIM_REPO_DIR})")
+        print("Starting simulator:", " ".join(cmd), f"(cwd={SIM_REPO_DIR})")
         try:
             self.proc = subprocess.Popen(cmd, cwd=SIM_REPO_DIR)
         except FileNotFoundError as e:
             raise FileNotFoundError(
-                f"no pude ejecutar el simulador ({e}). Revisá SIM_REPO_DIR y "
-                "SIM_LAUNCH_CMD en config.py.")
-        if esperar and not esperar_puerto(self.host, self.port, timeout):
+                f"couldn't run the simulator ({e}). Check SIM_REPO_DIR and "
+                "SIM_LAUNCH_CMD in settings.py.")
+        if wait and not wait_for_port(self.host, self.port, timeout):
             self.stop()
             raise TimeoutError(
-                f"el simulador no abrió {self.host}:{self.port} en {timeout}s.")
-        print(f"Simulador listo en {self.host}:{self.port}.")
+                f"the simulator didn't open {self.host}:{self.port} in {timeout}s.")
+        print(f"Simulator ready at {self.host}:{self.port}.")
         return self
 
     def stop(self):
@@ -92,33 +92,33 @@ class Simulador:
 
 
 def _self_check():
-    print("(prueba de espera de puerto — con un socket local de mentira)\n")
+    print("(port-waiting test — with a fake local socket)\n")
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", 0))
     srv.listen(1)
     port = srv.getsockname()[1]
-    ok_open = puerto_abierto("127.0.0.1", port)
-    ok_wait = esperar_puerto("127.0.0.1", port, timeout=2.0)
+    ok_open = port_open("127.0.0.1", port)
+    ok_wait = wait_for_port("127.0.0.1", port, timeout=2.0)
     srv.close()
-    ok_closed = not puerto_abierto("127.0.0.1", port)
-    print(f"  puerto abierto detectado : {'OK' if ok_open else 'MAL'}")
-    print(f"  esperar_puerto encuentra : {'OK' if ok_wait else 'MAL'}")
-    print(f"  puerto cerrado detectado : {'OK' if ok_closed else 'MAL'}")
-    todos = ok_open and ok_wait and ok_closed
-    print("\n=> " + ("OK ✓" if todos else "MAL ✗"))
-    return todos
+    ok_closed = not port_open("127.0.0.1", port)
+    print(f"  open port detected     : {'OK' if ok_open else 'FAIL'}")
+    print(f"  wait_for_port finds it : {'OK' if ok_wait else 'FAIL'}")
+    print(f"  closed port detected   : {'OK' if ok_closed else 'FAIL'}")
+    all_ok = ok_open and ok_wait and ok_closed
+    print("\n=> " + ("OK ✓" if all_ok else "FAIL ✗"))
+    return all_ok
 
 
 if __name__ == "__main__":
     if "--self-check" in sys.argv:
         sys.exit(0 if _self_check() else 1)
 
-    sim = Simulador().start()
-    print("Simulador corriendo. Ctrl+C para bajarlo.")
+    sim = Simulator().start()
+    print("Simulator running. Ctrl+C to stop it.")
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\nBajando simulador…")
+        print("\nStopping simulator…")
         sim.stop()
