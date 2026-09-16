@@ -57,7 +57,7 @@ from shared.datasource.db_source import (
     get_all_site_ids,
     count_critical_alarms_windowed,
     count_sites_with_alarms_windowed,
-    count_sites_requiring_attention_windowed,
+    count_sites_requiring_attention,
 )
 
 pytestmark = pytest.mark.ui
@@ -119,19 +119,26 @@ def test_total_sites_chip_matches_db(require_omniops, fleet_overview_page, total
     assert grid.chip_value(0) == str(total_fleet_sites)
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="CONFIRMED DEFECT (2026-09-16, Qase Defect TBD, same one as "
+           "test_sites_requiring_attention_ignores_time_range below). "
+           "REVISED per the developer (2026-09-16): this card's 'current' "
+           "badge means it must show the flat/CURRENT count of sites with an "
+           "open alert (count_sites_requiring_attention, not windowed by any "
+           "range) -- alerts never auto-close, so 'flat' and 'current' are "
+           "the same thing here. The previous version of this test compared "
+           "against count_sites_requiring_attention_windowed(hours=24), which "
+           "coincidentally passed because the UI's OWN bug (silently "
+           "following the Topbar filter like Sites with Alarms does) made it "
+           "match that wrong formula at the default 24h range -- confirmed "
+           "live the flat/true value is 11, but the card showed 6 at 24h.")
 def test_sites_requiring_attention_matches_db(require_omniops, fleet_overview_page, db_conn, all_site_ids):
-    """Cross-layer, fleet-wide, WINDOWED: the page loads with
-    ?timeRange=24h (fleet_overview_page.py PATH), and this card reads
-    GET /api/Events/analytics/fleet-alarm-kpis, which only counts alerts
-    whose window overlaps the last 24h (FirstOccurred <= now AND
-    LastOccurred >= now-24h, per docs/OF-298.txt) -- NOT a flat all-time
-    count. Using the flat count here previously produced a false mismatch
-    whenever an alert's LastOccurred had aged out of the 24h window (e.g.
-    after a telemetry outage stopped updating it) while OmniOps' "alerts
-    never auto-close" behavior (docs/HOW_IT_WORKS.md §4) kept it open in
-    the DB -- see fleet_overview_new_bug_critical_causes memory."""
+    """Cross-layer, fleet-wide, FLAT/CURRENT (not windowed) -- see this
+    test's xfail reason above for why the previous windowed(hours=24)
+    comparison was itself hiding the bug."""
     grid = fleet_overview_page.status_grid()
-    expected = count_sites_requiring_attention_windowed(db_conn, all_site_ids, hours=24)
+    expected = count_sites_requiring_attention(db_conn, all_site_ids)
     assert grid.card_value("SITES REQUIRING ATTENTION") == str(expected)
 
 
@@ -154,3 +161,70 @@ def test_update_time_chip_is_populated(require_omniops, fleet_overview_page):
     the placeholder ("—") once telemetry is flowing."""
     grid = fleet_overview_page.status_grid()
     assert grid.chip_value(2) not in ("", "—", "-")
+
+
+@pytest.mark.parametrize("range_label, hours", [("Last 7 days", 168), ("Last 30 days", 720)])
+def test_history_kpi_cards_match_db_for_range(
+        require_omniops, fleet_overview_page, db_conn, all_site_ids, range_label, hours):
+    """Extends test_critical_alarms_matches_db / test_sites_with_alarms_matches_db
+    above to 7d/30d, driven through the REAL UI time-range selector -- Qase
+    case #260 ("Range switch recomputes the history KPIs to exact values").
+    Fleet Availability already has its own dedicated 7d/30d coverage in
+    test_fleet_overview_availability.py (Qase case #283) -- not repeated
+    here. Sites Requiring Attention is DELIBERATELY NOT checked here --
+    per the developer (2026-09-16), it's a CURRENT-state card (badge=
+    "current", see test_status_grid_time_badges_current_vs_range) and must
+    NOT change with the Topbar range at all; see
+    test_sites_requiring_attention_ignores_time_range below for that
+    (currently-failing) case instead."""
+    fleet_overview_page.select_time_range(range_label)
+    try:
+        fleet_overview_page.page.wait_for_timeout(1000)
+        grid = fleet_overview_page.status_grid()
+
+        expected_critical = count_critical_alarms_windowed(db_conn, all_site_ids, hours=hours)
+        assert grid.card_value("CRITICAL ALARMS") == str(expected_critical), (
+            f"[{range_label}] Critical Alarms")
+
+        expected_with_alarms = count_sites_with_alarms_windowed(db_conn, all_site_ids, hours=hours)
+        assert grid.card_value("SITES WITH ALARMS") == str(expected_with_alarms), (
+            f"[{range_label}] Sites with Alarms")
+    finally:
+        fleet_overview_page.select_time_range("Last 24 hours")
+
+
+@pytest.mark.parametrize("range_label", ["Last 7 days", "Last 30 days"])
+@pytest.mark.xfail(
+    strict=True,
+    reason="CONFIRMED DEFECT (2026-09-16, Qase Defect TBD). Sites Requiring "
+           "Attention carries a 'current' badge (not a '24H/7D/30D' range "
+           "badge, confirmed by test_status_grid_time_badges_current_vs_range) "
+           "and per the developer (2026-09-16) is meant to show the CURRENT "
+           "fleet state -- unaffected by the Topbar's time-range filter, the "
+           "same as Connected Sites/Online Rate/MTTR. Instead it silently "
+           "follows the filter exactly like Sites with Alarms does: confirmed "
+           "live the DB's flat/current count (11 sites with an open alert --"
+           "alerts never auto-close, so flat IS current) stays 11 regardless "
+           "of range, but the card itself showed 6 at 24h, 9 at 7d, 11 at "
+           "30d -- tracking the SAME windowed query as Sites with Alarms "
+           "instead of staying fixed at the current value.")
+def test_sites_requiring_attention_ignores_time_range(
+        require_omniops, fleet_overview_page, db_conn, all_site_ids, range_label):
+    """Per the developer's clarification (2026-09-16): the 'current' badge
+    on this card means its value should be the CURRENT fleet state, not
+    reactive to the Topbar's 24h/7d/30d filter -- so it must show the SAME
+    value at 24h and at this range."""
+    grid = fleet_overview_page.status_grid()
+    fleet_overview_page.select_time_range("Last 24 hours")
+    fleet_overview_page.page.wait_for_timeout(1000)
+    current_value = grid.card_value("SITES REQUIRING ATTENTION")
+
+    fleet_overview_page.select_time_range(range_label)
+    try:
+        fleet_overview_page.page.wait_for_timeout(1000)
+        assert grid.card_value("SITES REQUIRING ATTENTION") == current_value, (
+            f"Sites Requiring Attention changed from {current_value!r} at 24h to "
+            f"{grid.card_value('SITES REQUIRING ATTENTION')!r} at {range_label!r} -- "
+            f"it should stay at the CURRENT value regardless of the selected range")
+    finally:
+        fleet_overview_page.select_time_range("Last 24 hours")

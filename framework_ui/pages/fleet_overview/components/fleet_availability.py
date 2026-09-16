@@ -20,6 +20,13 @@ class FleetAvailability(BaseComponent):
     def meta_text(self):
         return self.page.locator(loc.META).inner_text().strip()
 
+    def title_text(self):
+        """The section's own title (e.g. 'Fleet Availability · Last 24h') --
+        confirmed live 2026-09-16 this updates its window-label suffix to
+        'Last 7d'/'Last 30d' the same way the Alarms Analytics panel titles
+        do (Qase case #281's behavior, extended here to this section)."""
+        return self.page.locator(".section-title").filter(has_text="Fleet Availability").first.inner_text().strip()
+
     def percentages(self):
         """{'normal': float, 'with_alarms': float, 'critical_offline': float},
         parsed from the legend text. None for any figure not found."""

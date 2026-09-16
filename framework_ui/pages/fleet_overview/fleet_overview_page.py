@@ -39,3 +39,12 @@ class FleetOverviewPage(BasePage):
 
     def alarms_analytics(self) -> FleetAlarmsAnalytics:
         return FleetAlarmsAnalytics(self.page)
+
+    def select_time_range(self, label):
+        """Switches the global 24h/7d/30d selector (confirmed live
+        2026-09-15: a real <select> in the topbar, same mechanism Data &
+        Monitoring's own global range selector uses) -- `label` is the
+        visible option text (e.g. "Last 7 days"), not the underlying
+        value ("7d")."""
+        self.page.locator(loc.TIME_RANGE_SELECT).select_option(label=label)
+        return self

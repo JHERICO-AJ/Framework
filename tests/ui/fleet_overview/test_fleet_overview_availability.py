@@ -100,6 +100,74 @@ def test_availability_card_matches_api(require_omniops, fleet_overview_page, api
         f"(full API response: {expected})")
 
 
+@pytest.mark.parametrize("range_label, days", [("Last 7 days", 7), ("Last 30 days", 30)])
+def test_availability_card_matches_db_formula_for_range(
+        require_omniops, fleet_overview_page, db_conn, range_label, days):
+    """Same check as test_availability_card_matches_db_formula above, but
+    driven through the REAL UI time-range selector -- closes a gap flagged
+    2026-09-16: Qase case #283 ("Availability changes with range") had been
+    Not Automated/muted, and the DB-formula helper already accepted a
+    `days` param, but nothing actually drove the UI's 7d/30d selector to
+    prove it. days=7/30 reads sites.FleetAvailabilityDailySummary instead
+    of the 24h raw-tick table (see _fleet_availability_ticks's docstring)."""
+    fleet_overview_page.select_time_range(range_label)
+    try:
+        fleet_overview_page.page.wait_for_timeout(1000)
+        card_pct = _read_availability_card_pct(fleet_overview_page)
+        expected = fleet_availability_card_pct(db_conn, days=days)
+        if expected is None:
+            pytest.skip(f"[{range_label}] no FleetAvailabilityDailySummary rows for this window yet")
+        assert card_pct == pytest.approx(expected, abs=0.05), (
+            f"[{range_label}] UI card {card_pct}% vs DB-formula {expected}%")
+    finally:
+        fleet_overview_page.select_time_range("Last 24 hours")
+
+
+@pytest.mark.parametrize("range_label, days", [("Last 7 days", 7), ("Last 30 days", 30)])
+def test_availability_bar_matches_db_formula_for_range(
+        require_omniops, fleet_overview_page, db_conn, range_label, days):
+    """Same as test_availability_card_matches_db_formula_for_range above,
+    for the bar's 3 segments -- same Qase case #283 gap."""
+    fleet_overview_page.select_time_range(range_label)
+    try:
+        fleet_overview_page.page.wait_for_timeout(1000)
+        avail = fleet_overview_page.availability()
+        avail.wait_past_mount_animation()
+        pct = avail.percentages()
+        assert None not in pct.values(), f"[{range_label}] couldn't parse all 3 segments: {pct}"
+
+        expected = fleet_availability_bar_pcts(db_conn, days=days)
+        if expected is None:
+            pytest.skip(f"[{range_label}] no FleetAvailabilityDailySummary rows for this window yet")
+        expected_normal, expected_warning, expected_critical = expected
+        assert (pct["normal"], pct["with_alarms"], pct["critical_offline"]) == pytest.approx(
+            (expected_normal, expected_warning, expected_critical), abs=0.05
+        ), (f"[{range_label}] UI bar {pct} vs DB-formula (normal={expected_normal}, "
+            f"warning={expected_warning}, critical={expected_critical})")
+    finally:
+        fleet_overview_page.select_time_range("Last 24 hours")
+
+
+@pytest.mark.parametrize(
+    "range_label, expected_suffix",
+    [("Last 24 hours", "LAST 24H"), ("Last 7 days", "LAST 7D"), ("Last 30 days", "LAST 30D")],
+)
+def test_availability_title_updates_with_range_label(
+        require_omniops, fleet_overview_page, range_label, expected_suffix):
+    """Extends Qase case #281's check ("Analytics titles update with the
+    window label", already automated for the 4 Fleet Alarms Analytics
+    panels) to this section's own title -- confirmed live 2026-09-16 it
+    also appends 'LAST 24H'/'LAST 7D'/'LAST 30D', same behavior."""
+    fleet_overview_page.select_time_range(range_label)
+    try:
+        fleet_overview_page.page.wait_for_timeout(1000)
+        title = fleet_overview_page.availability().title_text()
+        assert expected_suffix in title.upper(), (
+            f"[{range_label}] Fleet Availability title missing {expected_suffix!r}: {title!r}")
+    finally:
+        fleet_overview_page.select_time_range("Last 24 hours")
+
+
 def test_availability_bar_sums_to_exactly_100(require_omniops, fleet_overview_page):
     """The mask-guard + reconciliation in FleetStatePercentages.Calculate
     (§4.2.1) GUARANTEES the three segments sum to exactly 100.0 -- not

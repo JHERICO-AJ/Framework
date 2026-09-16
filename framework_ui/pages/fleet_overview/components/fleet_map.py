@@ -96,25 +96,29 @@ class FleetMap(BaseComponent):
     #                      click_map_background() uses the center.
 
     def hover_marker(self, marker_locator):
-        """A REAL mouse move to the marker's center (not Locator.hover(),
-        for the same reason click_marker uses a raw mouse click -- see its
-        docstring)."""
-        box = marker_locator.bounding_box()
-        cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-        self.page.mouse.move(cx, cy)
+        """Dispatches a `mouseover` DIRECTLY on this DOM node (not a real
+        page.mouse.move at its resolved screen coordinates). Confirmed
+        2026-09-15: several BOLIVIA markers share near-identical pixel
+        coordinates on the shared fleet map (a real, reproduced overlap,
+        not a hypothetical) -- a coordinate-based mouse move lands on
+        whichever marker is topmost in z-order at that pixel, which can be
+        a DIFFERENT site than the one this locator actually points to
+        (reproduced live: a real click aimed at a marker with
+        fill="var(--critical)" opened a different, offline site's popup
+        instead). dispatch_event fires straight on the intended DOM node
+        regardless of what's stacked on top of it, and was confirmed live
+        to still trigger Leaflet's real tooltip/popup-opening behavior
+        (BOLIVIA/CRITICAL popup opened correctly this way)."""
+        marker_locator.dispatch_event("mouseover")
 
     def click_marker(self, marker_locator):
-        """A REAL mouse click at the marker's exact center — NOT
-        Locator.click()/force=True. Confirmed 2026-08-31: Playwright's
-        synthetic force-click bypasses the actionability check but doesn't
-        reliably trigger the popup's own click handler; a real
-        page.mouse.click at the resolved coordinates does. Also triggers
-        the map's zoom-to-site (confirmed 2026-09-01: the marker's own
-        bounding box goes stale/zero-size right after, consistent with the
-        map re-centering/re-rendering)."""
-        box = marker_locator.bounding_box()
-        cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-        self.page.mouse.click(cx, cy)
+        """Dispatches a `click` DIRECTLY on this DOM node -- same overlap
+        rationale as hover_marker's docstring above (superseding the old
+        "must use a real page.mouse.click" approach, which is exactly what
+        was landing on the wrong stacked marker). Confirmed live 2026-09-15
+        this still triggers the popup's real click handler (correct site
+        name/status) and the map's zoom-to-site behavior."""
+        marker_locator.dispatch_event("click")
 
     def wait_for_popup_content(self, timeout=8000):
         """The popup PANE exists in the DOM immediately on click, but its

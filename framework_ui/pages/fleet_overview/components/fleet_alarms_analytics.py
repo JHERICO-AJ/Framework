@@ -45,6 +45,15 @@ class FleetAlarmsAnalytics(BaseComponent):
         )
         return card.locator(loc.SMALL_TABLE)
 
+    def panel_title_text(self, title_substring):
+        """Full text of a panel's own title element (e.g. 'Top sites by
+        alarms · Last 7 days') -- for verifying the window-label suffix
+        the title is expected to append per the currently selected time
+        range (Qase case #281: 'Analytics titles update with the window
+        label'), not just the panel's data."""
+        self.wait_loaded()
+        return self.page.locator(loc.MINI_CHART_TITLE, has_text=title_substring).first.inner_text().strip()
+
     def _table_rows(self, table):
         rows = table.locator(loc.TABLE_ROW)
         result = []

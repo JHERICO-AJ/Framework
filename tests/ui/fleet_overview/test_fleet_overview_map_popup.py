@@ -25,19 +25,48 @@ Environment fixes that made ANY of this reproducible at all (still true):
      an instant later -- FleetMap.wait_for_popup_content() waits for the
      real "Active Alarms" row instead of reading an empty pane.
 
-Uses whichever site happens to be the first Critical marker (arbitrary,
-not necessarily a BOLIVIA site if the shared fleet has other Critical
-sites) -- the popup's own site name is read back and used to query the DB
-for cross-layer verification of Active Alarms, rather than assuming which
-site got clicked.
+CORRECTED 2026-09-15: originally used whichever site happened to be the
+first Critical marker on the WHOLE shared map -- confirmed live this can
+land on a legacy/unmaintained site (Fractal Knapp QA-01/02/03: created
+2026-09-06, LastTelemetryAtUtc IS NULL -- predates that column/mechanism
+-- but still carrying old open Severity=5 alerts that never auto-closed,
+so their marker renders "critical" from stale alert history while their
+popup correctly reports Offline/Never/0, since they genuinely have no
+real telemetry). That's not a product defect, it's a test picking the
+wrong kind of site -- comparing a site's CURRENT critical-alert color
+against its OWN Offline/no-telemetry reality is comparing two different
+timeframes of the same dead site, not catching a real inconsistency.
+Scoped now to the 6 actively-maintained FRACTAL_SITE_MODBUS sites (the
+same ones with real, continuously-updating LastTelemetryAtUtc this
+session verified) instead of "any Critical marker on the shared fleet".
+
+UPDATED 2026-09-15 (overlap risk, confirmed REAL not hypothetical): with
+BOLIVIA genuinely Critical (simulator on), a real coordinate-based click
+aimed at the marker with fill="var(--critical)" opened a DIFFERENT,
+offline legacy site's popup instead -- because several markers share
+near-identical pixel coordinates on the shared fleet map, and a
+pixel/mouse-position click or hover always lands on whichever marker is
+topmost in z-order there, regardless of which DOM node you meant to
+target. Tried zooming the map in first
+(page.locator(".leaflet-control-zoom-in").click()) to spread overlapping
+markers apart, but confirmed live this makes it WORSE in headless mode:
+after 3 zoom clicks, ALL 15 fleet markers' bounding boxes collapsed onto
+the exact same pixel. The actual fix was in FleetMap.hover_marker/
+click_marker themselves (see their docstrings): dispatch the mouseover/
+click event DIRECTLY on the intended DOM node instead of moving/clicking
+the real mouse at its resolved screen coordinates -- this bypasses
+z-order/hit-testing entirely, so it always hits the exact marker this
+locator points to, confirmed live to still trigger Leaflet's real
+popup-opening behavior correctly.
 """
 import time
 
 import pytest
 
 from shared.config.settings import FRACTAL_SITE_MODBUS, TOL_ABS_KW
-from shared.datasource.db_source import get_site_ids, count_all_alarms
+from shared.datasource.db_source import get_site_ids, count_all_alarms_windowed
 from shared.datasource.fractal_modbus_source import read_fractal_site_total_kw
+from framework_ui.pages.fleet_overview.components import fleet_map_locators as fmap_loc
 
 pytestmark = pytest.mark.ui
 
@@ -52,10 +81,44 @@ def fresh_map(require_omniops, fleet_overview_page):
     fleet_overview_page.page.reload()
     fleet_overview_page.open()
     fmap = fleet_overview_page.map()
-    marker = fmap.clickable_marker_by_status("critical")
+    marker = _find_maintained_critical_marker(fmap)
     if marker is None:
-        pytest.skip("no critical-status site right now")
+        pytest.skip("none of the 6 maintained BOLIVIA sites is Critical right now")
     return fmap, marker
+
+
+def _find_maintained_critical_marker(fmap):
+    """Only among the 6 actively-maintained FRACTAL_SITE_MODBUS sites (real,
+    continuously-updating LastTelemetryAtUtc) -- NOT "any Critical marker
+    on the shared map", which can land on a legacy/unmaintained site with
+    stale never-auto-closed alerts and no real telemetry (see this file's
+    own module docstring for the 2026-09-15 incident that showed why).
+
+    Filters by STATUS FIRST (reading each marker's own `fill` attribute --
+    cheap, no hover needed) down to the handful of Critical candidates on
+    the whole shared map, THEN checks only those few for their site name --
+    the other way around (hovering all ~150+ shared-fleet markers once per
+    one of our 6 site names) was confirmed 2026-09-15 to make this fixture
+    take 6+ minutes and eventually time out.
+
+    Identifies each candidate's site by clicking it (via click_marker,
+    which dispatches the click directly on the DOM node -- see its
+    docstring -- immune to the marker-stacking/overlap issue a
+    coordinate-based click or hover would hit) and reading the resulting
+    popup's own `popup_site_name()`. A non-matching candidate's popup is
+    dismissed before moving on, so the map is left clean either way."""
+    candidates = fmap.page.locator(
+        f'{fmap_loc.MARKER}[fill="var(--critical)"][fill-opacity="1"]')
+    for i in range(candidates.count()):
+        marker = candidates.nth(i)
+        fmap.click_marker(marker)
+        fmap.wait_for_popup_content()
+        name = fmap.popup_site_name()
+        fmap.click_map_background()
+        fmap.page.wait_for_timeout(300)
+        if name in FRACTAL_SITE_MODBUS:
+            return marker
+    return None
 
 
 @pytest.fixture
@@ -96,12 +159,17 @@ def test_popup_active_alarms_matches_db(hovered_popup, db_conn):
     """"Active Alarms" is the ALL-severity count, not just Critical --
     confirmed 2026-08-31 (BOLIVIA showed Active Alarms=11 vs
     Critical-only=9; 11 matches the "Total Alarms" column in the Fleet
-    Alarms Analytics "Top sites by alarms" table for the same site)."""
+    Alarms Analytics "Top sites by alarms" table for the same site).
+    WINDOWED (hours=24) -- confirmed 2026-09-15 the flat, all-time
+    count_all_alarms produced a false mismatch (12 all-time vs 8 shown)
+    whenever a site has alerts older than 24h that never auto-closed; same
+    windowing pattern already fixed elsewhere in this suite (see
+    count_all_alarms_windowed's docstring)."""
     site_name = hovered_popup.popup_site_name()
     site_ids = get_site_ids(db_conn, [site_name])
     if site_name not in site_ids:
         pytest.skip(f"couldn't resolve {site_name!r} to a site_id in the DB")
-    expected = count_all_alarms(db_conn, [site_ids[site_name]])
+    expected = count_all_alarms_windowed(db_conn, [site_ids[site_name]], hours=24)
     actual = int(hovered_popup.popup_fields()["Active Alarms"])
     assert actual == expected
 

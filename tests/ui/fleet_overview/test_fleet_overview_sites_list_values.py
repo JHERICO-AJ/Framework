@@ -50,8 +50,12 @@ import pytest
 
 from framework_api.services.monitoring_service import MonitoringService
 from shared.config.settings import POWER_MIN_KW, POWER_MAX_KW, TOL_ABS_KW, FRACTAL_SITE_MODBUS
-from shared.datasource.db_source import get_site_ids, count_critical_alarms
+from shared.datasource.db_source import (
+    get_site_ids, count_critical_alarms, count_critical_alarms_windowed,
+    site_names_with_real_telemetry_history,
+)
 from shared.datasource.fractal_modbus_source import read_fractal_site_total_kw
+from framework_ui.pages.fleet_overview.fleet_overview_page import FleetOverviewPage
 
 pytestmark = pytest.mark.ui
 
@@ -273,8 +277,17 @@ def test_power_ui_matches_api(require_omniops, fleet_overview_page, api_client, 
 
 
 def test_critical_column_matches_db(require_omniops, site_row, db_conn, site_id):
+    """WINDOWED (hours=24), not the flat all-time count -- confirmed
+    2026-09-15 this exact test was still comparing against the flat
+    count_critical_alarms (its own docstring explicitly warns against
+    that: "does NOT match what the UI shows, which is windowed by the
+    Topbar's timeRange filter") despite the sibling windowing bug already
+    being fixed elsewhere in this file. Live evidence: BOLIVIA had 9
+    Critical alerts total, but 3 of them dated back to 2026-09-12 (outside
+    the last 24h) -- the UI correctly showed 6, the flat count wrongly
+    expected 9."""
     sites, row = site_row
-    expected = count_critical_alarms(db_conn, [site_id])
+    expected = count_critical_alarms_windowed(db_conn, [site_id], hours=24)
     assert sites.critical_count(row) == expected
 
 
@@ -286,7 +299,7 @@ def test_last_seen_is_populated_when_online(require_omniops, site_row):
     assert text not in ("", "—", "-", "Never"), f"expected a real Last Seen value, got {text!r}"
 
 
-def test_last_seen_shows_real_time_not_never_when_offline(require_omniops, fleet_overview_page):
+def test_last_seen_shows_real_time_not_never_when_offline(require_omniops, fleet_overview_page, db_conn):
     """Closes a gap flagged 2026-09-03: "Never" is only the CORRECT Last
     Seen value for a site that has NEVER received telemetry -- a site
     that WAS online before and is currently Offline (e.g. the simulator
@@ -294,29 +307,42 @@ def test_last_seen_shows_real_time_not_never_when_offline(require_omniops, fleet
     environment) should still show the real elapsed time since its last
     telemetry, not reset to "Never".
 
-    We can assert this deterministically (not just "if we happen to see
-    it") because we know for a fact all 6 BOLIVIA sites have received
-    telemetry at some point -- we're the ones sending it. So ANY of them
-    currently Offline is a valid case: it must show a real elapsed time,
-    never the "Never" placeholder that's only correct for a site with no
-    telemetry history at all (e.g. a genuinely new/unconfigured site)."""
+    FLEET-WIDE, not scoped to ALL_BOLIVIA_SITE_NAMES -- confirmed
+    2026-09-15 this is what makes the case reliably exercisable: we can't
+    always guarantee one of OUR 6 sites happens to be Offline the moment
+    this runs (e.g. all 6 online via the simulator), but a colleague's
+    site elsewhere in the shared fleet often already is (KIRUNA, PALAWAN
+    confirmed live 2026-09-15 to both be Offline for days while still
+    carrying a real, non-null LastTelemetryAtUtc). Asserting against
+    site_names_with_real_telemetry_history(db_conn) instead of a hardcoded
+    site list is what lets this test scale to whichever site the fleet
+    happens to have in that state, without needing to manually take one of
+    ours offline for it. The legacy sites that predate the
+    LastTelemetryAtUtc column entirely (Dallas BESS Alpha, lowercase
+    Bolivia, Fractal Knapp QA-01/02/03, Frac SiteView, Fract2) are
+    correctly excluded by that same DB check -- "Never" IS the correct
+    value for them, so picking one of those here would be asserting the
+    wrong thing."""
     sites = fleet_overview_page.sites_list()
+    candidates = site_names_with_real_telemetry_history(db_conn)
+
     offline_row = None
-    for name in ALL_BOLIVIA_SITE_NAMES:
+    for name in candidates:
         row = sites.row_index_by_site_name(name)
         if row is not None and sites.status_text(row).strip().upper() == "OFFLINE":
             offline_row = (name, row)
             break
 
     if offline_row is None:
-        pytest.skip("no BOLIVIA site is Offline right now -- can't exercise "
-                     "the offline-with-history case")
+        pytest.skip("no site with real telemetry history is Offline right now -- "
+                     "can't exercise the offline-with-history case")
 
     name, row = offline_row
     text = sites.last_seen_text(row)
     assert text.strip() != "Never", (
-        f"{name!r} is Offline but has definitely received telemetry before (we send it "
-        f"ourselves) -- Last Seen should show the real elapsed time, not 'Never'")
+        f"{name!r} is Offline but has definitely received telemetry before "
+        f"(LastTelemetryAtUtc IS NOT NULL) -- Last Seen should show the real "
+        f"elapsed time, not 'Never'")
 
 
 def test_status_column_matches_db_when_critical(require_omniops, site_row, db_conn, site_id):
@@ -336,3 +362,40 @@ def test_status_column_matches_db_when_critical(require_omniops, site_row, db_co
     assert sites.status_text(row).strip().upper() == "CRITICAL", (
         f"DB shows {critical_count} Critical alert(s) for {SITE_NAME!r}, "
         f"but the Status pill doesn't say Critical")
+
+
+LAPTOP_VIEWPORT = {"width": 1366, "height": 768}
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="CONFIRMED DEFECT (2026-09-16, Qase Defect TBD). The 'Power "
+           "(kW)' column header uses white-space: nowrap + text-overflow: "
+           "clip (not ellipsis, no wrap) with a fixed-width cell that "
+           "doesn't grow with its content -- fine at the 1920x1080 "
+           "automation-default viewport (a typical external monitor), but "
+           "at common laptop resolutions the cell narrows along with "
+           "everything else and the header text no longer fits, silently "
+           "clipping the '(KW)' suffix (confirmed live: cell needs 86px, "
+           "gets only 57px at 1366x768). Reported by the user after "
+           "noticing '(kW)' was cut off on a laptop screen but fine on an "
+           "external monitor -- not an OS display-scaling artifact, "
+           "reproduced here at the DOM/CSS level in a clean headless "
+           "browser.")
+def test_power_column_header_not_clipped_on_laptop_viewport(require_omniops, logged_in_page):
+    """Confirmed 2026-09-16 this reproduces at every common laptop
+    resolution tried (1366x768, 1536x864, 1280x800) -- 1366x768 is used
+    here as the representative case. Restores the session-scoped page's
+    viewport afterward so later tests still run at the 1920x1080
+    BrowserFactory default they assume (see its own docstring on why that
+    size matters for the Fleet Map)."""
+    original_viewport = logged_in_page.viewport_size
+    try:
+        logged_in_page.set_viewport_size(LAPTOP_VIEWPORT)
+        fleet = FleetOverviewPage(logged_in_page).open()
+        sites = fleet.sites_list()
+        assert not sites.header_is_clipped("POWER (KW)"), (
+            f"'Power (kW)' column header is clipped at {LAPTOP_VIEWPORT} "
+            f"-- part of the label (the '(KW)' unit) is invisible")
+    finally:
+        logged_in_page.set_viewport_size(original_viewport)

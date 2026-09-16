@@ -55,6 +55,61 @@ def test_top_sites_by_alarms_matches_db(require_omniops, fleet_overview_page, db
     assert actual_bolivia == expected
 
 
+@pytest.mark.parametrize("range_label, hours", [("Last 7 days", 168), ("Last 30 days", 720)])
+def test_top_sites_by_alarms_matches_db_for_range(
+        require_omniops, fleet_overview_page, db_conn, bolivia_site_ids, range_label, hours):
+    """Same check as test_top_sites_by_alarms_matches_db above, but driven
+    through the REAL UI time-range selector (select_time_range) instead of
+    only comparing against a fixed hours=24 DB query -- closes a gap
+    flagged 2026-09-16: Qase cases #279/#289/#290 ("...updates/shows exact
+    N rows for 7D/30D") had been sitting as Not Automated/muted, and a
+    quick manual check that the underlying windowed DB helpers accept an
+    arbitrary `hours` isn't the same as proving the actual 7d/30d UI
+    control drives the right data -- this is that proof, parametrized
+    instead of duplicated per range per docs/PR_CORRECTIONS.md's spirit."""
+    fleet_overview_page.select_time_range(range_label)
+    try:
+        fleet_overview_page.page.wait_for_timeout(1000)
+        expected = top_sites_by_alarms_windowed(db_conn, bolivia_site_ids, hours=hours)
+        actual = fleet_overview_page.alarms_analytics().top_sites_by_alarms()
+        actual_bolivia = {name: value for name, value in actual.items() if name in BOLIVIA_SITE_NAMES}
+        assert actual_bolivia == expected, f"[{range_label}] {actual_bolivia} vs DB {expected}"
+    finally:
+        fleet_overview_page.select_time_range("Last 24 hours")
+
+
+@pytest.mark.parametrize(
+    "range_label, expected_suffix",
+    [("Last 24 hours", "LAST 24H"), ("Last 7 days", "LAST 7D"), ("Last 30 days", "LAST 30D")],
+)
+def test_analytics_titles_update_with_range_label(
+        require_omniops, fleet_overview_page, range_label, expected_suffix):
+    """Closes a gap flagged 2026-09-16: Qase case #281 ("Analytics titles
+    update with the window label") had been Not Automated/muted since
+    2026-09-03. Confirmed live the 4 panel titles append 'LAST 24H'/
+    'LAST 7D'/'LAST 30D' (not the friendlier 'Last 24 hours' wording from
+    the case's own description, but the same underlying behavior: the
+    title reflects the selected range) -- also confirmed the hourly-vs-
+    daily chart's OWN title wording changes ('... BY HOUR' at 24h, '... BY
+    DAY' at 7d/30d, matching the bucket granularity switch already covered
+    by test_hourly_distribution_day_label_is_local_not_utc), so it's
+    matched here by its stable 'ALARMS IN' prefix instead of 'by hour'."""
+    fleet_overview_page.select_time_range(range_label)
+    try:
+        fleet_overview_page.page.wait_for_timeout(1000)
+        analytics = fleet_overview_page.alarms_analytics()
+        titles = {
+            "Top sites by alarms": analytics.panel_title_text("TOP SITES BY ALARMS"),
+            "Top 5 critical causes": analytics.panel_title_text("TOP 5 CRITICAL CAUSES"),
+            "Alarms histogram": analytics.panel_title_text("ALARMS IN"),
+            "Alarm distribution": analytics.panel_title_text("ALARM DISTRIBUTION"),
+        }
+        wrong = {name: text for name, text in titles.items() if expected_suffix not in text.upper()}
+        assert not wrong, f"[{range_label}] titles missing {expected_suffix!r} suffix: {wrong}"
+    finally:
+        fleet_overview_page.select_time_range("Last 24 hours")
+
+
 def test_top_critical_causes_matches_db(require_omniops, fleet_overview_page, db_conn, all_site_ids):
     """Fleet-wide (all_site_ids), NOT scoped to BOLIVIA -- confirmed
     2026-09-02 this table aggregates the whole shared fleet, same as the
@@ -110,3 +165,38 @@ def test_top_critical_causes_matches_db(require_omniops, fleet_overview_page, db
             if value[0] > min_shown_count and cause not in actual
         }
         assert not missed, f"causes with a strictly higher count than the UI's Top 5 are missing: {missed}"
+
+
+@pytest.mark.parametrize("range_label, hours", [("Last 7 days", 168), ("Last 30 days", 720)])
+def test_top_critical_causes_matches_db_for_range(
+        require_omniops, fleet_overview_page, db_conn, all_site_ids, range_label, hours):
+    """Same check and tie-tolerance rationale as
+    test_top_critical_causes_matches_db above, but driven through the REAL
+    UI time-range selector (select_time_range) -- closes the same gap
+    described in test_top_sites_by_alarms_matches_db_for_range's docstring
+    for Qase cases #289/#290 ("Top 5 critical causes - exact 7D/30D
+    rows"), which had been Not Automated/muted."""
+    fleet_overview_page.select_time_range(range_label)
+    try:
+        fleet_overview_page.page.wait_for_timeout(1000)
+        wide_expected = top_critical_causes_windowed(db_conn, all_site_ids, hours=hours, limit=20)
+        actual = fleet_overview_page.alarms_analytics().top_critical_causes()
+
+        wrong_values = {
+            cause: (value, wide_expected.get(cause))
+            for cause, value in actual.items()
+            if wide_expected.get(cause) != value
+        }
+        assert not wrong_values, f"[{range_label}] UI shows wrong (count, sites) for: {wrong_values}"
+
+        if actual:
+            min_shown_count = min(count for count, _sites in actual.values())
+            missed = {
+                cause: value for cause, value in wide_expected.items()
+                if value[0] > min_shown_count and cause not in actual
+            }
+            assert not missed, (
+                f"[{range_label}] causes with a strictly higher count than the "
+                f"UI's Top 5 are missing: {missed}")
+    finally:
+        fleet_overview_page.select_time_range("Last 24 hours")

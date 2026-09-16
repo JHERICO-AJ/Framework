@@ -63,3 +63,15 @@ class SitesList(BaseComponent):
 
     def last_seen_text(self, row_index):
         return self.cell_text(row_index, self._col_index("LAST SEEN"))
+
+    def header_is_clipped(self, header_name):
+        """True if this column header's text overflows its own cell width
+        (scrollWidth > clientWidth) -- the header uses white-space: nowrap
+        + text-overflow: clip (not ellipsis, no wrap), so an overflow here
+        means part of the label is genuinely invisible, not just visually
+        tight. Confirmed 2026-09-16: "POWER (KW)" fits at the 1920x1080
+        automation-default viewport but clips (loses the "(KW)" suffix)
+        at common laptop resolutions (1366x768, 1536x864, 1280x800)."""
+        headers = self.page.locator(loc.HEADER_CELL)
+        idx = self._col_index(header_name)
+        return headers.nth(idx).evaluate("el => el.scrollWidth > el.clientWidth")

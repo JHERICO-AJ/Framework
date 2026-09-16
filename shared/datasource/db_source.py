@@ -544,6 +544,29 @@ def get_all_site_ids(conn) -> list[str]:
         return [str(row[0]) for row in cur.fetchall()]
 
 
+def site_names_with_real_telemetry_history(conn) -> list[str]:
+    """Names of every site whose LastTelemetryAtUtc IS NOT NULL -- i.e. it
+    has genuinely sent telemetry at some point and OmniOps' Last Seen cache
+    has something real to rehydrate from on restart (see this file's own
+    module context / the 2026-09-15 LastTelemetryAtUtc explanation from the
+    dev team). Deliberately NOT scoped to FRACTAL_SITE_MODBUS/BOLIVIA --
+    confirmed live 2026-09-15 that other teams' sites (KIRUNA, PALAWAN) also
+    have real, non-null LastTelemetryAtUtc despite currently being offline
+    (their telemetry stopped days ago), which is exactly the "Offline site
+    with real history" case a Last-Seen-not-'Never' check needs -- and using
+    whichever such site the shared fleet happens to have right now, instead
+    of hardcoding to our own 6, is what makes that check scale without
+    needing a specific site to be manually taken offline for it. The
+    legacy sites confirmed to predate the LastTelemetryAtUtc column/
+    mechanism entirely (Dallas BESS Alpha, lowercase Bolivia, Fractal Knapp
+    QA-01/02/03, Frac SiteView, Fract2) correctly have NULL here and are
+    excluded -- for THEM, "Never" is the actually-correct Last Seen value,
+    not a bug."""
+    with conn.cursor() as cur:
+        cur.execute('SELECT "Name" FROM "sites"."Site" WHERE "LastTelemetryAtUtc" IS NOT NULL')
+        return [row[0] for row in cur.fetchall()]
+
+
 def _window_overlap_clause() -> str:
     """The real backend's inclusion rule for a time-windowed alarm query,
     per docs/OF-298.txt (Technical annex, FleetAlarmKpiStore): "the alert
@@ -666,14 +689,32 @@ def count_critical_alarms(conn, site_ids: list[str]) -> int:
 
 
 def count_all_alarms(conn, site_ids: list[str]) -> int:
-    """Every alert regardless of severity -- matches the map popup's
-    "Active Alarms" field and the Alarms Analytics "Total Alarms" column
-    (both confirmed 2026-08-31 to be the ALL-severity count, not just
-    Critical -- e.g. BOLIVIA showed Active Alarms=11 / Critical=9)."""
+    """Every alert regardless of severity, ALL-TIME -- does NOT match the
+    map popup's "Active Alarms" field on its own (confirmed 2026-09-15:
+    that field is windowed by the same 24h Topbar filter every other Fleet
+    Overview count uses, same as count_critical_alarms vs
+    count_critical_alarms_windowed -- use count_all_alarms_windowed for UI
+    comparisons instead). Kept for diagnostics."""
     with conn.cursor() as cur:
         cur.execute(
             'SELECT count(*) FROM "events"."Alert" WHERE "SiteId" = ANY(%s::uuid[])',
             (site_ids,),
+        )
+        return cur.fetchone()[0]
+
+
+def count_all_alarms_windowed(conn, site_ids: list[str], hours: int = 24) -> int:
+    """Windowed equivalent of count_all_alarms, matching what the map
+    popup's "Active Alarms" field and the Alarms Analytics "Total Alarms"
+    column actually show (confirmed 2026-09-15: BOLIVIA had 12 all-time
+    alerts but only 8 with LastOccurred inside the last 24h, and the popup
+    showed 8, not 12 -- same windowing pattern as
+    count_critical_alarms_windowed, see its docstring)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f'SELECT count(*) FROM "events"."Alert" '
+            f'WHERE "SiteId" = ANY(%s::uuid[]) AND {_window_overlap_clause()}',
+            (site_ids, hours),
         )
         return cur.fetchone()[0]
 

@@ -9,3 +9,9 @@ after login, there is no separate "/fleet-overview" route.
 # a reliable "the page actually rendered" signal (same convention as
 # AlarmsPage.open(), which waits on its own table's first row).
 LOADED_MARKER = ".sites-table tbody tr"
+
+# The topbar has 2 plain <select class="select"> elements (site picker +
+# time range) with no distinguishing class of their own -- scoped by its
+# own options instead (confirmed live 2026-09-15: exactly 1 match), same
+# pattern already used for Data & Monitoring's equivalent selector.
+TIME_RANGE_SELECT = 'select:has(option[value="24h"])'
