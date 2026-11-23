@@ -1,7 +1,7 @@
 """verify_monitoring_stat_aggregation — deep, one-off verification that
 monitoring.MonitoringStat's own 5-min bucket aggregation correctly reflects
 what the Fractal simulator is actually emitting, for Site Power Telemetry
-(docs/OF-143.txt).
+(Jira story OF-143).
 
 Why this exists (separate from the fast pytest suite): a chart-vs-
 MonitoringStat comparison (tests/ui/monitoring/test_site_power_telemetry.py)

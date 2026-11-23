@@ -1,4 +1,4 @@
-"""Data & Monitoring - Thermal Diagnostics (docs/OF-149.txt): a 3-block,
+"""Data & Monitoring - Thermal Diagnostics (Jira story OF-149): a 3-block,
 site-level, ALWAYS-LIVE thermal summary (Cell Temperature Delta, Highest /
 Lowest Temp, Average Cell Temp) built from per-string/rack battery
 temperature snapshots held in RAM (SiteState / BatteryTelemetryByKey) --
@@ -114,7 +114,7 @@ def test_ui_values_match_api_thermal_diagnostics(bolivia_monitoring_page, api_cl
     a real number <-> the same number (1 decimal) whenever the API starts
     returning one. There's no live Fractal simulator source for this data
     (Fractal's own wire protocol never sends per-string BMS temperatures --
-    confirmed in docs/GUIA_CONSUMO_PROTO_FRACTAL.md), so a UI-vs-simulator
+    confirmed in the internal QA note 'GUIA_CONSUMO_PROTO_FRACTAL'), so a UI-vs-simulator
     leg isn't possible for BOLIVIA specifically -- but the moment a site
     with a real 3rd-layer source exists, adding it here is a single
     `read_..._temp_c(SITE_NAME)` call plugged into the same convergence-

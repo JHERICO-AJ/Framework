@@ -1,5 +1,5 @@
 """Selectors for the Fault Localization card (Data & Monitoring --
-docs/OF-153.txt): 3 device-card blocks (Highest V, Lowest V, Temperature)
+Jira story OF-153): 3 device-card blocks (Highest V, Lowest V, Temperature)
 holding 8 rack/pack/cell location rows -- always live via diagnostics push
 (~5s), no 24h/7d/30d applicability (CA-05), same .device-card/.bit-row
 pattern as Site Load & Backup Context/Raw Event Bit Viewer.

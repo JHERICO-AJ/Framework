@@ -172,5 +172,5 @@ python -m tools.sim_proxy --self-check
   the differential oracle, the proxy step by step, and the QA findings
   (OmniOps evaluates by telemetry and doesn't close alarms). Recommended
   reading before touching the code.
-- See `MIGRATION_STATUS.md` for the migration history and `ARQUITECTURA.md`
+- See `MIGRATION_STATUS.md` for the migration history and `ARCHITECTURE.md`
   for the architecture details.

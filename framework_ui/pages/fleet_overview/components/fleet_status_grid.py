@@ -35,6 +35,11 @@ class FleetStatusGrid(BaseComponent):
             text = locator.inner_text().strip()
         return text
 
+    def trend_text(self, title):
+        """The small label below the value and pill (e.g. "23 Critical",
+        "No Critical", "All online")."""
+        return self.card_by_title(title).locator(loc.CARD_TREND).inner_text().strip()
+
     def badge_kind(self, index):
         """'current' if the card's badge is the "CURRENT" style, else 'range'
         (the "24H" style — a fixed lookback window, not a literal date range,

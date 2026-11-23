@@ -1,5 +1,5 @@
 """Selectors for the PCS Energy Statistics card (Data & Monitoring --
-docs/OF-150.txt): a 2-block period-energy summary (PCS Charge Energy, PCS
+Jira story OF-150): a 2-block period-energy summary (PCS Charge Energy, PCS
 Discharge Energy), following the page's GLOBAL 24h/7d/30d selector (no
 selector of its own -- CA-03).
 

@@ -11,6 +11,8 @@ automatically.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 
 def count_all_sites(conn) -> int:
     """Total sites in the DB, across every team/manufacturer -- NOT just
@@ -35,7 +37,7 @@ def get_site_ids(conn, site_names: list[str]) -> dict[str, str]:
 def count_devices_by_level_code(conn, site_id: str, device_level_code: str) -> int:
     """Count of emsdevices."Device" rows for one site at a given
     DeviceLevelCode (e.g. "RACK", "PCS", "GATEWAY") -- confirmed schema
-    2026-09-08. Ground truth for CA-09 (docs/OF-140.txt): "Sitio Fractal
+    2026-09-08. Ground truth for CA-09 (Jira story OF-140): "Sitio Fractal
     puede tener menos detalle de racks; no se inventan racks" -- a Fractal
     site's RACK count here should be 0, since Fractal's wire protocol has
     no rack-level telemetry to back a real rack device with."""
@@ -51,7 +53,7 @@ def count_devices_by_level_code(conn, site_id: str, device_level_code: str) -> i
 def get_configured_gateway_ip(conn, site_id: str) -> str | None:
     """The site's configured (Intake) Gateway IP -- sites."SiteConfiguration".
     "GatewayIp". Ground truth for the EMS IPC & Gateway card's "Gateway IP"
-    line: docs/OF-140.txt line 646-648 documents the fallback order as
+    line: Jira story OF-140 line 646-648 documents the fallback order as
     "Telemetria viva -> intake", and Fractal's emscommunication."RawBaseData"
     is confirmed empty for BOLIVIA (no live telemetry path populates
     LocalIp for Fractal -- same gap already documented for Power/SOC in
@@ -67,14 +69,20 @@ def get_recent_event_timestamps(conn, site_id: str, signal: str, limit: int = 20
     """The `OccurredAt` timestamps of the most recent `limit` raw events for
     one signal (e.g. "PCS_COMM_LOST") -- events."Event", newest first.
     Ground truth for the RATE at which raw events are generated while a
-    condition persists: confirmed 2026-09-08 that PCS_COMM_LOST events for
-    BOLIVIA fire roughly every ~1.7s (2145 in the last hour alone), far
-    faster than the documented 5-10s sampling interval
-    (docs/OmniOps_Parameter_Mapping_V03). This is orthogonal to whatever
-    "N communication warnings" the UI shows (that comes from a ~5s
-    in-memory cache per docs/OF-140.txt's cache table, not this table
-    directly) -- this checks the upstream event-generation rate itself,
-    which IS durable/queryable."""
+    condition persists. This is orthogonal to whatever "N communication
+    warnings" the UI shows (that comes from a ~5s in-memory cache per
+    Jira story OF-140's cache table, not this table directly) -- this checks
+    the upstream event-generation rate itself, which IS durable/queryable.
+
+    NOTE: a persisting condition on a multi-device signal (e.g. all 3 PCS
+    losing comms at once) legitimately produces several rows with the SAME
+    OccurredAt, one per DeviceId -- that's real, simultaneous devices, not
+    duplicate/too-fast generation. Measuring the rate needs grouping by
+    device first (see get_recent_event_timestamps_by_device) -- mixing all
+    devices' timestamps into one flat list makes a healthy multi-device
+    tick look like a rate bug (confirmed live 2026-09-21: BOLIVIA's 3 PCS
+    all report PCS_COMM_LOST with the identical timestamp every ~10s tick,
+    which is 3 real devices, not 3 duplicates)."""
     with conn.cursor() as cur:
         cur.execute(
             'SELECT "OccurredAt" FROM events."Event" '
@@ -85,11 +93,32 @@ def get_recent_event_timestamps(conn, site_id: str, signal: str, limit: int = 20
         return [row[0] for row in cur.fetchall()]
 
 
+def get_recent_event_timestamps_by_device(conn, site_id: str, signal: str, limit: int = 300) -> dict:
+    """Same raw events as get_recent_event_timestamps, but grouped by
+    DeviceId -- {device_id: [OccurredAt, ...]} newest first per device.
+    Use this (not the flat version) to measure the generation RATE for a
+    signal that can fire on multiple devices at once (e.g. PCS_COMM_LOST
+    on PCS-1/2/3), so simultaneous-but-distinct devices aren't mistaken
+    for the same condition firing too fast."""
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT "OccurredAt", "DeviceId" FROM events."Event" '
+            'WHERE "SiteId" = %s AND "Signal" = %s '
+            'ORDER BY "OccurredAt" DESC LIMIT %s',
+            (site_id, signal, limit),
+        )
+        rows = cur.fetchall()
+    by_device = {}
+    for occurred_at, device_id in rows:
+        by_device.setdefault(device_id, []).append(occurred_at)
+    return by_device
+
+
 def get_gateway_mac_ids(conn, site_id: str) -> list[str]:
     """Every registered MAC_ID identity for the site's GATEWAY-level
     device(s) -- emsdevices."Device" joined to emsdevices."DeviceIdentity".
     Ground truth for the EMS IPC & Gateway card's "MAC" line per
-    docs/OmniOps_Parameter_Mapping_V03: MAC should come from the "Gateway /
+    the internal QA note OmniOps_Parameter_Mapping_V03: MAC should come from the "Gateway /
     IPC asset registry", not live telemetry (Fractal's wire protocol has no
     MAC field at all). Returns a list, not a single value, because BOLIVIA
     is confirmed (2026-09-08) to have TWO GATEWAY-level devices both marked
@@ -109,8 +138,8 @@ def count_monitoring_stat_rows_by_interpolated(conn, site_id: str) -> dict[bool,
     """{True: N, False: M} -- how many monitoring."MonitoringStat" rows for
     this site are interpolated vs not. Ground truth for the "Browse
     snapshots" modal's historical Quality (Good = not interpolated,
-    Uncertain = interpolated, per docs/ComponentesStatusMonitorign.md sec
-    8 / docs/OF-140.txt): if every row is interpolated, "Good" can never
+    Uncertain = interpolated, per the internal QA note 'ComponentesStatusMonitorign' sec
+    8 / Jira story OF-140): if every row is interpolated, "Good" can never
     appear for this site, regardless of how continuous its real telemetry
     actually was."""
     with conn.cursor() as cur:
@@ -175,7 +204,7 @@ def get_monitoring_stat_is_interpolated(conn, site_id: str, window_start, window
 def get_latest_monitoring_stat_soc(conn, site_id: str) -> tuple | None:
     """(BucketTimestamp, Soc) of the most recent site-level BATTERY_BMS row
     in monitoring."MonitoringStat" -- ground truth for Site Power
-    Telemetry's always-visible "Site SOC (%)" line (docs/OF-143.txt: "Fuente
+    Telemetry's always-visible "Site SOC (%)" line (Jira story OF-143: "Fuente
     main data source for the chart" is this exact table, not live memory state,
     unlike the diagnostic cards). The site-level row is DeviceName
     '00:00:00:00:00:00' (the same placeholder gateway identity already
@@ -197,7 +226,7 @@ def _monitoring_stat_window_avg(conn, site_id, subsystem_name, device_name, colu
                                  hourly_samples_only=False):
     """Shared implementation: average of `column` for one subsystem/device
     over [window_start, window_end) -- the exact bucket boundary ground
-    truth for one Site Power Telemetry chart point (docs/OF-143.txt: 24h
+    truth for one Site Power Telemetry chart point (Jira story OF-143: 24h
     plots ~1 point per COMPLETE HOUR, 7d/30d plot ~1 point per COMPLETE DAY
     -- "sin la hora/el dia en curso"). Confirmed 2026-09-10 this exact-window
     approach is what's actually needed: an earlier "average of the last N
@@ -256,7 +285,7 @@ def _monitoring_stat_signed_power_avg(conn, site_id, window_start, window_end, c
     including rows where the site was discharging (contributing 0, not
     excluded). Confirmed 2026-09-10 this -- not a plain average of only the
     same-sign rows -- is what Charge/Discharge Power actually compute:
-    docs/OF-143.txt's Calculo rule ("negativa -> carga; positiva ->
+    Jira story OF-143's Calculo rule ("negativa -> carga; positiva ->
     descarga") is applied PER-SAMPLE before aggregation, so a day where the
     site both charged and discharged correctly ends up with BOTH Charge and
     Discharge Power nonzero (each diluted by the samples where it was 0) --
@@ -322,13 +351,20 @@ def _monitoring_stat_meter_import_export_avg_kw(conn, site_id, window_start, win
     (Meter / CT-PT focus). Backend formula (PowerTrendPointMapper.
     ResolveImportExport, meter branch -- confirmed live BOLIVIA always has
     MeterDemand populated, so the EgFromGrid/EgToGrid and signedPower
-    fallbacks never trigger there): Import = max(MeterDemand, 0),
-    Export = abs(min(MeterDemand, 0)) -- same zero-fill-the-other-side
+    fallbacks never trigger there): per BOLIVIA's Sign Convention
+    (METER_MINUS_PCS, confirmed live 2026-09-30 -- the internal QA note 'SIGN_CONVENTION',
+    the internal QA note 'MonitoringFixV2' item 2/3), Export = max(MeterDemand, 0),
+    Import = abs(min(MeterDemand, 0)) -- same zero-fill-the-other-side
     pattern already confirmed for Charge/Discharge Power (see
     _monitoring_stat_signed_power_avg's docstring), applied PER-SAMPLE
     before averaging, not a plain average of only same-sign rows. Pass
-    hourly_samples_only=True for a 7d/30d window."""
-    column_expr = 'GREATEST("MeterDemand", 0)' if import_side else 'GREATEST(-"MeterDemand", 0)'
+    hourly_samples_only=True for a 7d/30d window.
+    CORRECTED 2026-09-30: this used to be the OPPOSITE (import_side=True ->
+    positive MeterDemand), matching the pre-fix Qase Defect #57/#58 behavior
+    -- that was ground truth for the BUG, not for the documented formula.
+    Re-verified live 2026-09-30: a positive MeterDemand (~7.5 MW) now shows
+    as Export, not Import."""
+    column_expr = 'GREATEST(-"MeterDemand", 0)' if import_side else 'GREATEST("MeterDemand", 0)'
     with conn.cursor() as cur:
         query = (
             f'SELECT avg({column_expr}) FROM monitoring."MonitoringStat" '
@@ -395,7 +431,7 @@ def get_monitoring_stat_soc_avg(conn, site_id: str, window_start, window_end,
                                  hourly_samples_only=False) -> float | None:
     """Same exact-window ground truth as get_monitoring_stat_active_power_avg_kw,
     for Site SOC (%) -- for the 7d/30d views, where each chart point is a
-    full-day AVERAGE (docs/OF-143.txt "7 d/30 d: ... Misma logica de
+    full-day AVERAGE (Jira story OF-143 "7 d/30 d: ... Misma logica de
     agregacion [que 24h]"), not the single latest reading
     (get_latest_monitoring_stat_soc is the right ground truth for 24h's
     still-forming/most-recent point instead). Pass hourly_samples_only=True
@@ -448,7 +484,7 @@ def get_monitoring_stat_data_freshness_avg_seconds(conn, site_id: str, window_st
 
 def get_recent_events(conn, site_id: str, limit: int = 100) -> list[dict]:
     """The most recent `limit` events."Event" rows for this site, newest
-    first -- ground truth for Event Log's live table (docs/OF-293.txt:
+    first -- ground truth for Event Log's live table (Jira story OF-293:
     "Live card: last 100 events + real-time push"). Each row's
     Metadata (jsonb) carries triggerSource/cause/alarmCode/serviceName --
     the raw material for the UI's own Source/Description priority rules
@@ -467,7 +503,7 @@ def get_recent_events(conn, site_id: str, limit: int = 100) -> list[dict]:
 def count_events_in_window(conn, site_id: str, window_start, window_end) -> int:
     """How many events."Event" rows exist for this site in
     [window_start, window_end) -- ground truth for Event Log's "Browse
-    history" modal query limits (docs/OF-293.txt: 24h<=1000, 7d<=2000,
+    history" modal query limits (Jira story OF-293: 24h<=1000, 7d<=2000,
     30d<=5000 events) and its truncation warning (CA-32). Read directly
     rather than hardcoded: BOLIVIA's real PCS_COMM_LOST rate is already
     confirmed abnormally high (69,000+ total), so whether a given window
@@ -485,7 +521,7 @@ def count_events_in_window(conn, site_id: str, window_start, window_end) -> int:
 def get_recent_alarms(conn, site_id: str, limit: int = 100) -> list[dict]:
     """The most recent `limit` events."Alert" rows for this site, newest
     first by LastOccurred -- ground truth for Alarm History's live table
-    (docs/OF-148.txt: "Live table: last 100 alarms for the site, no
+    (Jira story OF-148: "Live table: last 100 alarms for the site, no
     date filter"). Severity is an int (confirmed live against BOLIVIA:
     1=WARNING, 3=MAJOR, 5=CRITICAL); Status 0=Open (-> "WO Open")."""
     with conn.cursor() as cur:
@@ -520,7 +556,7 @@ def max_open_alarm_severity_for_subsystem(conn, site_id: str, subsystem: str) ->
 def count_alarms_in_window(conn, site_id: str, window_start, window_end) -> int:
     """How many events."Alert" rows exist for this site with LastOccurred in
     [window_start, window_end) -- ground truth for Alarm History's "Browse
-    history" modal query limits (docs/OF-148.txt: 24h<=1000, 7d<=2000,
+    history" modal query limits (Jira story OF-148: 24h<=1000, 7d<=2000,
     30d<=5000) and its truncation warning (CA-26)."""
     with conn.cursor() as cur:
         cur.execute(
@@ -569,7 +605,7 @@ def site_names_with_real_telemetry_history(conn) -> list[str]:
 
 def _window_overlap_clause() -> str:
     """The real backend's inclusion rule for a time-windowed alarm query,
-    per docs/OF-298.txt (Technical annex, FleetAlarmKpiStore): "the alert
+    per Jira story OF-298 (Technical annex, FleetAlarmKpiStore): "the alert
     overlaps: FirstOccurred <= end and LastOccurred >= start". end = now(),
     start = now() - hours. An alert opened before the window and never
     closed (OmniOps alerts never auto-close -- see docs/HOW_IT_WORKS.md
@@ -580,10 +616,37 @@ def _window_overlap_clause() -> str:
     return '"FirstOccurred" <= now() AND "LastOccurred" >= now() - (%s || \' hours\')::interval'
 
 
+def count_critical_alarms_by_local_day(conn, site_ids: list[str], hours: int = 168,
+                                        client_timezone: str = "America/La_Paz") -> dict[str, int]:
+    """Per-LOCAL-calendar-day breakdown of Critical alerts (one entry per
+    day, "YYYY-MM-DD" -> count) -- unlike count_critical_alarms_windowed's
+    single aggregate sum, this buckets each alert by its own LastOccurred
+    LOCAL calendar day, matching the per-bucket granularity of
+    GET /api/events/analytics/hourly-distribution's 7d/30d "by day" mode
+    WHEN CALLED with the 'ClientTimeZone' query param (confirmed via
+    network capture 2026-09-16 the real frontend always sends this, and
+    the backend shifts bucket boundaries to LOCAL midnight, not UTC
+    midnight -- an earlier version of this function grouped by UTC day,
+    which produced a false "day label is wrong" defect by comparing
+    against the wrong bucket boundaries entirely, not just a label
+    mismatch). A fully independent, DB-direct (bypassing the API entirely)
+    ground truth for the PER-BUCKET counts feeding
+    test_hourly_distribution_day_label_is_local_not_utc."""
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT date_trunc(\'day\', "LastOccurred" AT TIME ZONE %s) AS day, count(*) '
+            'FROM "events"."Alert" '
+            f'WHERE "SiteId" = ANY(%s::uuid[]) AND "Severity" = 5 AND {_window_overlap_clause()} '
+            'GROUP BY day ORDER BY day',
+            (client_timezone, site_ids, hours),
+        )
+        return {day.strftime("%Y-%m-%d"): count for day, count in cur.fetchall()}
+
+
 def count_critical_alarms_windowed(conn, site_ids: list[str], hours: int = 24) -> int:
     """Windowed equivalent of count_critical_alarms, matching what
     GET /api/Events/analytics/fleet-alarm-kpis actually computes for the
-    "Critical Alarms" KPI card (docs/OF-298.txt) -- unlike the flat,
+    "Critical Alarms" KPI card (Jira story OF-298) -- unlike the flat,
     all-time count_critical_alarms, this only counts alerts whose window
     overlaps [now()-hours, now()]. Use this one for UI comparisons; the
     flat version undercounts what the UI shows whenever there ARE alerts
@@ -602,7 +665,7 @@ def count_critical_alarms_windowed(conn, site_ids: list[str], hours: int = 24) -
 
 def count_sites_with_alarms_windowed(conn, site_ids: list[str], hours: int = 24) -> int:
     """Windowed equivalent of count_sites_with_alarms, matching the "Sites
-    with Alarms" KPI card's real windowed query (docs/OF-298.txt)."""
+    with Alarms" KPI card's real windowed query (Jira story OF-298)."""
     with conn.cursor() as cur:
         cur.execute(
             f'SELECT count(DISTINCT "SiteId") FROM "events"."Alert" '
@@ -621,7 +684,7 @@ def count_sites_requiring_attention_windowed(conn, site_ids: list[str], hours: i
 
 def top_critical_causes_windowed(conn, site_ids: list[str], hours: int = 24, limit: int = 5) -> dict[str, tuple[int, int]]:
     """Windowed equivalent of top_critical_causes, matching
-    GET /api/events/analytics/critical-causes?hours= (docs/OF-344.txt,
+    GET /api/events/analytics/critical-causes?hours= (Jira story OF-344,
     "Top 5 critical causes" panel). Same overlap window rule as the KPI
     cards -- both are Topbar-filter-driven per OF-298/OF-344, and this is
     the endpoint actually backing the panel our tests compare against."""
@@ -642,7 +705,7 @@ def top_critical_causes_windowed(conn, site_ids: list[str], hours: int = 24, lim
 
 def count_alarms_by_subsystem_windowed(conn, site_ids: list[str], hours: int = 24) -> dict[str, int]:
     """Windowed equivalent of count_alarms_by_subsystem, matching
-    GET /api/events/analytics/subsystem-distribution?hours= (docs/OF-344.txt)."""
+    GET /api/events/analytics/subsystem-distribution?hours= (Jira story OF-344)."""
     with conn.cursor() as cur:
         cur.execute(
             f'''
@@ -657,7 +720,7 @@ def count_alarms_by_subsystem_windowed(conn, site_ids: list[str], hours: int = 2
 
 def top_sites_by_alarms_windowed(conn, site_ids: list[str], hours: int = 24) -> dict[str, tuple[int, int]]:
     """Windowed equivalent of top_sites_by_alarms, matching
-    GET /api/events/analytics/top-sites?hours= (docs/OF-344.txt)."""
+    GET /api/events/analytics/top-sites?hours= (Jira story OF-344)."""
     with conn.cursor() as cur:
         cur.execute(
             f'''
@@ -676,7 +739,7 @@ def count_critical_alarms(conn, site_ids: list[str]) -> int:
     """Distinct open alerts with Severity=5 (Critical, per events.Alert data
     observed 2026-08-28) across the given sites. FLAT / ALL-TIME -- does NOT
     match what the UI shows, which is windowed by the Topbar's timeRange
-    filter (see count_critical_alarms_windowed and docs/OF-298.txt). Kept
+    filter (see count_critical_alarms_windowed and Jira story OF-298). Kept
     for diagnostics (e.g. isolating whether a mismatch is a windowing gap
     vs. something else); use the _windowed version for UI comparisons."""
     with conn.cursor() as cur:
@@ -730,12 +793,64 @@ def count_sites_with_alarms(conn, site_ids: list[str]) -> int:
         return cur.fetchone()[0]
 
 
-def count_sites_requiring_attention(conn, site_ids: list[str]) -> int:
-    """Same underlying data as count_sites_with_alarms -- kept as a separate
-    function since the two Fleet Status Summary cards read the same alert
-    table today, but may diverge in scope later (see
-    FLEET_OVERVIEW_FRACTAL_COMPATIBILITY.md §1.2 vs §1.6)."""
-    return count_sites_with_alarms(conn, site_ids)
+def count_sites_requiring_attention(conn, site_ids: list[str]) -> tuple[int, int]:
+    """Ground truth for the Fleet Status Summary's "Sites Requiring
+    Attention" card, confirmed directly by the dev 2026-09-30/10-01
+    (supersedes the earlier -- wrong -- assumption that this card is just
+    `count_sites_with_alarms`, and also supersedes Jira story OF-298's claim
+    that the value follows the Topbar 24h/7d/30d window; the dev's
+    explanation is the authoritative, current source).
+
+    Per-site status, in priority order (same as the Fleet Map/Sites List
+    marker logic, FLEET_OVERVIEW_FRACTAL_COMPATIBILITY.md §2.1/§3.2):
+      1. No telemetry from any device in the last 120s -> Offline
+      2. Else, has an active Critical (Severity=5) alert -> Critical
+      3. Else, has any other active alert (Minor/Warning/Major) -> Warning
+      4. Else -> Online
+
+    Returns (big_number, label_number):
+      - big_number (the card's large number) = Warning + Critical + Offline
+      - label_number (the "N Critical" text below it) = Critical + Offline
+        (Warning is NOT included in the label, only in the big number)
+
+    Alerts never auto-close in this environment, so "has an active alert"
+    is the same as "has ever had one" (same assumption count_sites_with_alarms
+    already makes). The 120s online threshold matches Connected Sites'
+    own documented rule (FLEET_OVERVIEW_FRACTAL_COMPATIBILITY.md §1.1) --
+    reused here rather than invented, but inherits that same rule's known
+    imprecision at the exact threshold boundary (see
+    test_connected_sites_matches_db's module docstring on why the
+    fleet-wide online count can't be reconstructed with full confidence)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT "SiteId", max("BucketTimestamp") FROM monitoring."MonitoringStat" '
+            'WHERE "SiteId" = ANY(%s::uuid[]) GROUP BY "SiteId"',
+            (site_ids,),
+        )
+        last_seen = dict(cur.fetchall())
+
+        cur.execute(
+            'SELECT "SiteId", "Severity" FROM "events"."Alert" WHERE "SiteId" = ANY(%s::uuid[])',
+            (site_ids,),
+        )
+        severities_by_site = {}
+        for site_id, severity in cur.fetchall():
+            severities_by_site.setdefault(site_id, []).append(severity)
+
+    now = datetime.now(timezone.utc)
+    warning = critical = offline = 0
+    for site_id in site_ids:
+        ts = last_seen.get(site_id)
+        online = ts is not None and (now - ts).total_seconds() <= 120
+        severities = severities_by_site.get(site_id, [])
+        if not online:
+            offline += 1
+        elif 5 in severities:
+            critical += 1
+        elif severities:
+            warning += 1
+
+    return warning + critical + offline, critical + offline
 
 
 def count_alarms_by_subsystem(conn, site_ids: list[str]) -> dict[str, int]:
@@ -790,7 +905,7 @@ def top_critical_causes(conn, site_ids: list[str], limit: int = 5) -> dict[str, 
 
 def _fleet_availability_ticks(conn, days: int) -> tuple[int, int, int, int] | None:
     """(normal, warning, critical, total) tick sums for the fleet-wide
-    availability window -- FLEET-WIDE, not per-site (see docs/fleet-
+    availability window -- FLEET-WIDE, not per-site (see the internal QA note fleet-
     availability.md §2): days=1 sums the last 24h of raw 5-min ticks from
     sites.FleetAvailabilitySample; days=7/30 sums that many COMPLETE days
     from sites.FleetAvailabilityDailySummary (the daily rollup), matching
@@ -821,7 +936,7 @@ def _fleet_availability_ticks(conn, days: int) -> tuple[int, int, int, int] | No
 
 def fleet_availability_card_pct(conn, days: int = 1) -> float | None:
     """Replicates FleetAvailabilityService.GetFleetAvailabilityHistoryAsync's
-    exact formula (docs/fleet-availability.md §4.1): Math.Round(normal /
+    exact formula (the internal QA note 'fleet-availability' §4.1): Math.Round(normal /
     total * 100, 2) -- plain rounding, NO mask-guard. This is the "Fleet
     Availability" KPI CARD's value, not the bar's (see
     fleet_availability_bar_pcts for that -- they use different rounding
@@ -836,7 +951,7 @@ def fleet_availability_card_pct(conn, days: int = 1) -> float | None:
 
 def fleet_availability_bar_pcts(conn, days: int = 1) -> tuple[float, float, float] | None:
     """Replicates FleetStatePercentages.Calculate exactly
-    (docs/fleet-availability.md §4.2.1): round each to 1 decimal, mask-
+    (the internal QA note 'fleet-availability' §4.2.1): round each to 1 decimal, mask-
     guard (a nonzero raw count never displays as 0.0%), then reconcile any
     rounding drift against whichever of the three is currently largest so
     the three always sum to exactly 100.0. Returns (normal, warning,
@@ -909,13 +1024,21 @@ def get_current_weather(conn, site_id: str) -> dict | None:
     (API) fallback -- used to confirm whether that fallback actually
     reflects this real live weather data, or a disconnected static
     default (see tests/ui/monitoring/test_environmental_monitoring.py).
-    None if the site has no current weather row yet."""
+    None if the site has no current weather row yet.
+
+    NOTE: confirmed live 2026-09-21 that the backend can leave MULTIPLE
+    rows flagged IsCurrent=true for the same site (old ones aren't cleared
+    when a new one is inserted) -- fetching without an explicit order is
+    nondeterministic and can silently return a stale row instead of the
+    real current one, so this always orders by Timestamp DESC and takes
+    the newest."""
     with conn.cursor() as cur:
         cur.execute(
             '''
             SELECT "Temperature", "Humidity", "Timestamp"
             FROM "weather"."WeatherData"
             WHERE "SiteId" = %s::uuid AND "IsCurrent" = true
+            ORDER BY "Timestamp" DESC LIMIT 1
             ''',
             (site_id,),
         )

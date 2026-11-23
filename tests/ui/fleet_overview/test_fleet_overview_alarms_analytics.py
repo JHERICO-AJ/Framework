@@ -37,7 +37,7 @@ def all_site_ids(db_conn):
 
 def test_top_sites_by_alarms_matches_db(require_omniops, fleet_overview_page, db_conn, bolivia_site_ids):
     """Windowed (hours=24): this panel reads
-    GET /api/events/analytics/top-sites?hours= (docs/OF-344.txt), same
+    GET /api/events/analytics/top-sites?hours= (Jira story OF-344), same
     Topbar-driven window as the KPI cards, and the page loads with
     ?timeRange=24h (fleet_overview_page.py PATH) -- so the flat, all-time
     top_sites_by_alarms would undercount whenever an alert's LastOccurred
@@ -122,7 +122,7 @@ def test_top_critical_causes_matches_db(require_omniops, fleet_overview_page, db
     correct comparison.
 
     WINDOWED (hours=24): this panel reads
-    GET /api/events/analytics/critical-causes?hours= (docs/OF-344.txt),
+    GET /api/events/analytics/critical-causes?hours= (Jira story OF-344),
     and the page loads with ?timeRange=24h (fleet_overview_page.py PATH).
     A flat, all-time count previously produced a false "UI undercounts by
     N" failure: OmniOps alerts never auto-close (docs/HOW_IT_WORKS.md §4),

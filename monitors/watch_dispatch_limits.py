@@ -1,7 +1,7 @@
 """watch_dispatch_limits — LIVE monitor of Dispatch Limits & Tracking's 3
 Fractal-fed blocks: simulator vs API vs UI, side by side, refreshed every
 few seconds. Same idea as watch_three_layers.py (simulator vs API vs UI for
-Power), applied to docs/OF-145.txt's Actual PCS Power / DC Bus Current /
+Power), applied to Jira story OF-145's Actual PCS Power / DC Bus Current /
 DC Bus Voltage on BOLIVIA -- but instead of comparing a single instant
 (which flickers FAIL just from ingestion latency, since the value keeps
 changing live), each tick is checked against a short rolling history of
@@ -16,13 +16,13 @@ Ctrl+C to exit.
 from __future__ import annotations
 
 import time
-from collections import deque
 
 import psycopg2
 
 from shared.config.settings import (
     OMNIOPS_EVERY_S, BASE_URL, DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD,
 )
+from monitors.rolling_match import RollingMatch, HISTORY_WINDOW_S
 from shared.config.credentials import load_credentials
 from shared.datasource.db_source import get_site_ids
 from shared.datasource.fractal_modbus_source import (
@@ -42,12 +42,6 @@ TOL_ABS_KW = 50.0
 TOL_ABS_A = 50.0
 TOL_ABS_V = 5.0
 
-# How much recent simulator history to keep per field, and for how long a
-# match is still considered "in sync" rather than stale -- same numbers as
-# the pytest convergence window (POWER_HISTORY_DURATION_S/MAX_LATENCY_S).
-HISTORY_WINDOW_S = 120
-STALE_AFTER_S = 300
-
 
 def _parse_number(text, unit_suffix):
     if text in (None, "N/A", "—"):
@@ -61,39 +55,6 @@ def _resolve_bolivia_site_id():
         return get_site_ids(conn, [SITE_NAME])[SITE_NAME]
     finally:
         conn.close()
-
-
-class _RollingMatch:
-    """Keeps a rolling window of (timestamp, value) simulator samples for
-    one field, and reports whether a given reading matches ANY sample still
-    within HISTORY_WINDOW_S -- the live equivalent of the pytest
-    convergence-window loop, but never stops: old samples just age out."""
-
-    def __init__(self, tolerance):
-        self.tolerance = tolerance
-        self.samples = deque()  # [(monotonic_time, value), ...]
-
-    def add_sample(self, value):
-        now = time.monotonic()
-        self.samples.append((now, value))
-        while self.samples and now - self.samples[0][0] > HISTORY_WINDOW_S:
-            self.samples.popleft()
-
-    def check(self, reading):
-        """Returns (ok, latency_s, matched_sim_value) -- the matched value
-        is what makes two independently-timed reads visually "go hand in
-        hand": even though the UI/API number was captured a few seconds
-        after that simulator sample, printing THAT exact matched number
-        next to it proves they're the same underlying reading, not a
-        coincidence of rounding."""
-        if reading is None:
-            return None, None, None
-        match = next(((t, v) for t, v in reversed(self.samples) if abs(v - reading) <= self.tolerance), None)
-        if match is None:
-            return False, None, None
-        matched_time, matched_value = match
-        latency_s = time.monotonic() - matched_time
-        return latency_s <= STALE_AFTER_S, latency_s, matched_value
 
 
 def _print_row(label, sim_value, unit, api_value, api_match, ui_value, ui_match):
@@ -190,9 +151,9 @@ def run():
     print(f"(each PASS/FAIL is a convergence-window match against the last "
           f"{HISTORY_WINDOW_S}s of simulator samples, not a single instant)\n")
 
-    kw_history = _RollingMatch(TOL_ABS_KW)
-    a_history = _RollingMatch(TOL_ABS_A)
-    v_history = _RollingMatch(TOL_ABS_V)
+    kw_history = RollingMatch(TOL_ABS_KW)
+    a_history = RollingMatch(TOL_ABS_A)
+    v_history = RollingMatch(TOL_ABS_V)
 
     # Sample the simulator on its own, tighter tick -- it's the fastest-
     # moving layer (changes every simulator tick, ~1s), so the rolling

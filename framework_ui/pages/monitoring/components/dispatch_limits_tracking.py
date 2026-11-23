@@ -1,5 +1,5 @@
 """DispatchLimitsTracking — reusable component: the 6-block dispatch/
-setpoint/DC-bus summary on Data & Monitoring (docs/OF-145.txt)."""
+setpoint/DC-bus summary on Data & Monitoring (Jira story OF-145)."""
 from __future__ import annotations
 
 from framework_ui.base.base_component import BaseComponent

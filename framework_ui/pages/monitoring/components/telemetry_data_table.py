@@ -28,7 +28,7 @@ class TelemetryDataTable(BaseComponent):
         included. For a Fractal site, confirmed only 3 real subsystems ever
         appear here (EMS IPC & Gateway, PCS / Inverter, Battery / BMS) --
         HVAC/Meter/Network never generate a row, so they never appear as an
-        option either (docs/OF-141.txt: no data -> no row, not a blank one)."""
+        option either (Jira story OF-141: no data -> no row, not a blank one)."""
         options = self.page.locator(loc.SUBSYSTEM_SELECT).locator("option")
         return [options.nth(i).inner_text().strip() for i in range(options.count())]
 
@@ -120,7 +120,7 @@ class TelemetryDataTable(BaseComponent):
         return results
 
     def scroll_to_bottom(self):
-        """CA-04 (docs/OF-141.txt): Live is oldest-top/newest-bottom, and
+        """CA-04 (Jira story OF-141): Live is oldest-top/newest-bottom, and
         the virtualized list only renders rows near the current scroll
         position -- scroll the container to its end so the actually-latest
         rows (highest _data_index) are the ones mounted, not whatever
@@ -129,7 +129,7 @@ class TelemetryDataTable(BaseComponent):
         return self
 
     def scroll_to_top(self):
-        """CA-04 (docs/OF-141.txt): the oldest rows (lowest _data_index)
+        """CA-04 (Jira story OF-141): the oldest rows (lowest _data_index)
         are only mounted when the container is scrolled to its start."""
         self.page.locator(loc.SCROLL_CONTAINER).evaluate("el => el.scrollTop = 0")
         return self

@@ -13,7 +13,7 @@ SITE_SELECT = "select"
 # The global time-range selector ("Last 24 hours"/"Last 7 days"/"Last 30
 # days") is the 2nd plain <select> on the page. Confirmed 2026-09-09 this
 # does NOT affect the Telemetry Data Table's own fixed 24h Live window
-# (docs/OF-141.txt CA-09) -- they're deliberately independent.
+# (Jira story OF-141 CA-09) -- they're deliberately independent.
 TIME_RANGE_SELECT = "select >> nth=1"
 # The page shell wrapper -- always present regardless of whether the
 # selected site has any devices (confirmed 2026-09-04: the default site can

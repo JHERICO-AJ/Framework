@@ -1,5 +1,5 @@
 """
-diagnostico_websocket.py — why isn't SignalR updating the Playwright browser?
+diagnose_websocket.py — why isn't SignalR updating the Playwright browser?
 
 Listens, for ~25s, to what happens inside the browser:
   - WebSockets that open (SignalR uses WebSocket for real time)
@@ -8,12 +8,13 @@ Listens, for ~25s, to what happens inside the browser:
 
 With that we can see if SignalR tries to connect and fails, or doesn't even try.
 
-Run:  python diagnostico_websocket.py
+Run:  python diagnose_websocket.py
 """
 
 import time
 
 from playwright.sync_api import sync_playwright
+from shared.config.credentials import load_credentials
 from framework_ui.pages.monitoring.monitoring_page import MonitoringPage
 
 events = {"ws": [], "console_err": [], "req_fail": []}
@@ -36,7 +37,7 @@ page.on("requestfailed", lambda r: (events["req_fail"].append(r.url)
          or print(f"  [REQUEST FAILED] {r.url}  ({r.failure})")))
 
 # --- login + dashboard ---
-creds = _load_creds()
+creds = load_credentials()
 print("Login...")
 page.goto(LOGIN_URL)
 page.locator("#loginUser").fill(creds["email"])

@@ -1,11 +1,11 @@
 """
-diagnostico_token.py — where does the token end up after login, and does it survive?
+diagnose_token.py — where does the token end up after login, and does it survive?
 
 Logs in and checks where the app stores the token (localStorage, sessionStorage,
 cookies). Then navigates to the dashboard and checks again, to see if the token
 survived or was lost (which would explain the 401s).
 
-Run:  python diagnostico_token.py
+Run:  python diagnose_token.py
 """
 
 import json
@@ -13,6 +13,7 @@ import re
 import time
 
 from playwright.sync_api import sync_playwright
+from shared.config.credentials import load_credentials
 from framework_ui.pages.monitoring.monitoring_page import MonitoringPage
 
 HINTS = ("token", "jwt", "auth", "bearer", "access", "session")
@@ -48,7 +49,7 @@ pw = sync_playwright().start()
 browser = pw.chromium.launch(headless=False)
 page = browser.new_page()
 
-creds = _load_creds()
+creds = load_credentials()
 print("Login...")
 page.goto(LOGIN_URL)
 page.locator("#loginUser").fill(creds["email"])

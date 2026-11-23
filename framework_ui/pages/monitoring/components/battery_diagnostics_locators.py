@@ -1,5 +1,5 @@
 """Selectors for the Battery Diagnostics card (Data & Monitoring --
-docs/OF-142.txt): a 4-block cell-health summary, not a table or chart.
+Jira story OF-142): a 4-block cell-health summary, not a table or chart.
 
 Confirmed against the real deployed app (2026-09-10). `.card` is reused
 across many sections (same issue already documented for other cards in

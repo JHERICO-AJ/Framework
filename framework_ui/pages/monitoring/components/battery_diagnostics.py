@@ -1,5 +1,5 @@
 """BatteryDiagnostics — reusable component: the 4-block cell-health summary
-on Data & Monitoring (docs/OF-142.txt)."""
+on Data & Monitoring (Jira story OF-142)."""
 from __future__ import annotations
 
 from framework_ui.base.base_component import BaseComponent

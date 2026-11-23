@@ -2,13 +2,13 @@
 omniops_time.py — OmniOps time parsing, in one place.
 
 `parse_epoch` used to be duplicated in the two watchers. Now it lives here.
-Reuses `parse_iso_datetime` from shared.auth.base (which already knew how to
+Reuses `parse_iso_datetime` from shared.utils.parsing (which already knew how to
 handle the 'Z' and the microseconds).
 """
 
 from __future__ import annotations
 
-from shared.auth.base import parse_iso_datetime
+from shared.utils.parsing import parse_iso_datetime
 
 
 def parse_dt(ts):

@@ -91,11 +91,11 @@ class FleetAlarmsAnalytics(BaseComponent):
         )
         return card.locator(loc.CHART_CANVAS)
 
-    def _read_tooltip_at(self, x, y, settle_ms=100):
-        """Moves the mouse to (x, y) and returns the ECharts tooltip's text
+    def _read_tooltip_at(self, x_px, y_px, settle_ms=100):
+        """Moves the mouse to (x_px, y_px) and returns the ECharts tooltip's text
         if one is visible right after, else None (most swept points land
         between data points/slices and show nothing -- not an error)."""
-        self.page.mouse.move(x, y)
+        self.page.mouse.move(x_px, y_px)
         self.page.wait_for_timeout(settle_ms)
         tooltip = self.page.locator(loc.ECHARTS_TOOLTIP).last
         if tooltip.count() == 0 or not tooltip.is_visible():
@@ -107,9 +107,14 @@ class FleetAlarmsAnalytics(BaseComponent):
     def _parse_bar_tooltip(text):
         """"21 h\nCritical 26\nMajor 0\nMinor 12" (exact whitespace varies
         by render) -> ("21 h", {"critical": 26, "major": 0, "minor": 12}).
+        Also recognizes the 7d/30d "day" bucket label format ("16 Sep") for
+        the same tooltip, since this histogram switches from hourly to
+        daily buckets past the 24h range (see
+        test_hourly_distribution_day_label_is_local_not_utc) -- one parser
+        handles both granularities rather than duplicating this method.
         None if the text doesn't look like this chart's tooltip at all."""
-        hour_match = re.search(r"(\d{1,2}\s*h)\b", text)
-        if not hour_match:
+        bucket_match = re.search(r"(\d{1,2}\s*h)\b", text) or re.search(r"(\d{1,2}\s+[A-Za-z]{3})\b", text)
+        if not bucket_match:
             return None
         values = {}
         for label in ("Critical", "Major", "Minor"):
@@ -118,7 +123,7 @@ class FleetAlarmsAnalytics(BaseComponent):
                 values[label.lower()] = int(match.group(1))
         if not values:
             return None
-        return re.sub(r"\s+", " ", hour_match.group(1)), values
+        return re.sub(r"\s+", " ", bucket_match.group(1)), values
 
     @staticmethod
     def _parse_pie_tooltip(text):
@@ -129,6 +134,38 @@ class FleetAlarmsAnalytics(BaseComponent):
             return None
         name, count, pct = match.groups()
         return name.strip(), int(count), float(pct)
+
+    def scan_bars_in_order(self, steps=200):
+        """Sweeps LEFT TO RIGHT across the histogram (works for both the
+        24h 'by hour' and 7d/30d 'by day' bucket granularities -- matched
+        by the stable 'ALARMS IN' title prefix rather than 'by hour', since
+        that wording itself changes to 'by day' past 24h), returning bars
+        in their real on-screen chronological order:
+        [(label, {"critical": N, "major": N, "minor": N}), ...], with
+        consecutive duplicate reads of the same bar collapsed.
+
+        Use this (POSITIONAL correspondence with the API's own
+        chronologically-ordered rows) instead of scan_hourly_chart's
+        {label: values} dict when you need to check EVERY bucket, not just
+        ones with a distinctive enough data profile to fingerprint-match --
+        confirmed 2026-09-16 this covers 100% of buckets (7/7 in a 7d
+        check) instead of only the non-all-zero ones."""
+        canvas = self._chart_canvas_by_title("ALARMS IN")
+        box = canvas.bounding_box()
+        ordered = []
+        for i in range(steps):
+            x = box["x"] + box["width"] * (i + 0.5) / steps
+            y = box["y"] + box["height"] * 0.6
+            text = self._read_tooltip_at(x, y, settle_ms=40)
+            if not text:
+                continue
+            parsed = self._parse_bar_tooltip(text)
+            if not parsed:
+                continue
+            label, values = parsed
+            if not ordered or ordered[-1][0] != label:
+                ordered.append((label, values))
+        return ordered
 
     def scan_hourly_chart(self, steps=48):
         """Sweeps evenly-spaced x positions across the hourly bar chart,

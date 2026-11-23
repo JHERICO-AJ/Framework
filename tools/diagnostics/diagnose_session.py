@@ -1,20 +1,21 @@
 """
-diagnostico_sesion.py — how long does the browser session last before expiring?
+diagnose_session.py — how long does the browser session last before expiring?
 
 Logs in, goes to the dashboard, and every 2s says which page it's on (dashboard
 vs login). This way we see if the session expires quickly and why the monitor
 was losing the screen.
 
-Run:  python diagnostico_sesion.py
+Run:  python diagnose_session.py
 """
 
 import re
 import time
 
 from playwright.sync_api import sync_playwright
+from shared.config.credentials import load_credentials
 from framework_ui.pages.monitoring.monitoring_page import MonitoringPage
 
-creds = _load_creds()
+creds = load_credentials()
 pw = sync_playwright().start()
 browser = pw.chromium.launch(headless=False)
 page = browser.new_page()

@@ -1,4 +1,4 @@
-"""Data & Monitoring - Alarm History (docs/OF-148.txt) -- a live table
+"""Data & Monitoring - Alarm History (Jira story OF-148) -- a live table
 (Time/Device/Alarm/Severity/Status) of persisted alerts, plus a "Browse
 history" modal for a static, paginated historical query. Event Log's
 direct sibling in the same "Logs" section, same shared modal architecture.
@@ -32,7 +32,7 @@ SITE_NAME = "BOLIVIA"
 EXPECTED_LIVE_HEADERS = ["Time", "Device", "Alarm", "Severity", "Status"]
 EXPECTED_MODAL_HEADERS = EXPECTED_LIVE_HEADERS
 
-# docs/OF-148.txt's own query limits per Browse history window.
+# Jira story OF-148's own query limits per Browse history window.
 DOCUMENTED_QUERY_LIMIT = {"Last 24 hours": 1000, "Last 7 days": 2000, "Last 30 days": 5000}
 WINDOW_DURATION = {
     "Last 24 hours": timedelta(hours=24), "Last 7 days": timedelta(days=7), "Last 30 days": timedelta(days=30),
@@ -41,7 +41,7 @@ WINDOW_DURATION = {
 # Confirmed live against events."Alert"."Severity" (int) for BOLIVIA.
 SEVERITY_CODE_TO_TEXT = {1: "WARNING", 3: "MAJOR", 5: "CRITICAL"}
 
-# docs/OF-148.txt's own Estado -> etiqueta WO mapping.
+# Jira story OF-148's own Estado -> etiqueta WO mapping.
 STATUS_CODE_TO_WO_LABEL = {0: "WO Open", 1: "WO In-Progress", 2: "WO Closed", 3: "WO Suppressed"}
 
 
@@ -120,17 +120,12 @@ def test_severity_pill_shows_uppercase_text(bolivia_monitoring_page):
             f"row {i}: expected uppercase severity text, got {severity_text!r}")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-11): MAJOR-severity alarms render with "
-           "className 'sev-pill ' (empty modifier -- no color mapping), "
-           "falling back to a plain gray/default border+text color "
-           "(rgb(229,231,235)), unlike WARNING (blue, sev-warning) and "
-           "CRITICAL (red, sev-critical). CA-13 requires 'Severity in a "
-           "colored pill' -- MAJOR alarms are visually indistinguishable "
-           "from an unrecognized/unstyled severity, losing the at-a-glance "
-           "severity cue for a real, non-trivial severity level.")
 def test_every_documented_severity_has_a_distinct_color_class(bolivia_monitoring_page, db_conn, bolivia_site_id):
+    """CONFIRMED DEFECT 2026-09-11 (Qase Defect #39): MAJOR-severity alarms
+    rendered with className 'sev-pill ' (empty modifier -- no color
+    mapping), falling back to a plain gray/default color, unlike WARNING
+    (blue) and CRITICAL (red). FIXED as of 2026-09-21 (re-verified after
+    the JF/FixMonitoring deploy)."""
     db_alarms = get_recent_alarms(db_conn, bolivia_site_id, limit=100)
     severities_present = {a["severity"] for a in db_alarms}
     assert severities_present, f"no events.Alert rows for {SITE_NAME!r} to check"
@@ -273,21 +268,15 @@ def test_click_row_scrolls_telemetry_table_to_matching_device(bolivia_monitoring
         "own container to the matching device's rows")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-11): docs/OF-148.txt CA-11 requires new/"
-           "updated alarms to arrive via the /hubs/alerts hub (AlertCreated/"
-           "AlertUpdated) 'without reloading the page'. Confirmed live: with "
-           "BOLIVIA's real PCS_COMM_LOST alerts bumping LastOccurred every "
-           "~5s (verified via events.Alert directly and via Event Log's own "
-           "live table, which DID keep advancing every ~5s over the same "
-           "30s window), Alarm History's live table stayed frozen on the "
-           "exact same top-2 rows the entire 30s -- then jumped straight to "
-           "the current state the instant the page was manually reloaded. "
-           "The backend data and the hub subscription both work (Event Log "
-           "proves the site's live pipeline is fine); Alarm History's own "
-           "SignalR handler simply never applies the incoming update.")
 def test_live_alarms_update_without_manual_refresh(bolivia_monitoring_page):
+    """CONFIRMED DEFECT 2026-09-11 (Qase Defect #40): Jira story OF-148 CA-11
+    requires new/updated alarms to arrive via the /hubs/alerts hub
+    (AlertCreated/AlertUpdated) 'without reloading the page'. Confirmed
+    live: with BOLIVIA's real PCS_COMM_LOST alerts bumping LastOccurred
+    every ~5s, Event Log kept advancing live while Alarm History's table
+    stayed frozen for the whole 30s window, only updating on manual
+    reload. FIXED as of 2026-09-21 (re-verified after the JF/FixMonitoring
+    deploy, the internal QA note 'MnitoringFix' section 4.1)."""
     alarms = bolivia_monitoring_page.alarm_history()
     log = bolivia_monitoring_page.event_log()
     if not alarms.has_table():
@@ -309,21 +298,39 @@ def test_live_alarms_update_without_manual_refresh(bolivia_monitoring_page):
         f"(same as Event Log just did), but it stayed frozen: {alarm_before!r}")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-11): the parameter mapping's own "
-           "Status formula says 'If no WO link exists, show Active / "
-           "Cleared based on Resolution Timestamp' -- explicitly NOT a "
-           "WO-style label when no work order exists. Cross-checked "
-           "against /alarms (Alarms & Events), which has its own SEPARATE "
-           "'Alarm Condition' (Open/Ack/Cleared) and 'WO #' columns for "
-           "the exact same underlying alerts: filtering /alarms to the "
-           "exact BOLIVIA site shows WO # = 'Not Created' for EVERY one of "
-           "its 11 alarms (work order creation isn't implemented yet for "
-           "this deployment) -- yet Alarm History's Status column shows "
-           "'WO Open' for all of them, fabricating the appearance of an "
-           "active work order that doesn't exist.")
 def test_status_reflects_real_work_order_state_not_fabricated_wo_open(bolivia_monitoring_page, logged_in_page):
+    """CONFIRMED DEFECT 2026-09-11 (Qase Defect #41): Alarm History's
+    Status column showed 'WO Open' for every alarm even though /alarms'
+    own 'WO #' column confirmed no work order actually exists ('Not
+    Created') -- fabricating an active work order that doesn't exist.
+
+    RE-SCOPED 2026-09-21: this column's own documented values are
+    exclusively WO-lifecycle labels ('WO Open / WO In-Progress / WO
+    Closed', per OmniOps_Parameter_Mapping_V03) -- so the correct
+    "no WO" state is 'Not Created', continuing that same lifecycle axis,
+    not a mix-in of the alarm's own condition (Active/Cleared, a
+    different axis entirely per the older, superseded fallback text).
+    This also matches the client-approved demo's and the app's own
+    existing convention: /alarms already renders literal 'Not Created'
+    for this exact situation (same underlying alert, same 'no WO'
+    concept) -- Alarm History's Status column should say the same thing,
+    not a differently-worded paraphrase.
+
+    CONFIRMED FIXED 2026-09-30 (MonitoringFixV2.md item 6): re-verified live
+    against BOLIVIA (with alarm #70 injected to have an open, WO-less alarm
+    to check) -- Alarm History's Status column now shows the literal 'Not
+    Created' label, matching /alarms' own convention for this exact case.
+    The earlier generic 'Open' replacement (2026-09-21) is gone. xfail
+    removed.
+
+    This test had NEVER actually run before 2026-09-21 regardless: it had two
+    of its own bugs (site-selection code, not the app) both silently
+    swallowed by the xfail wrapper the whole time -- select_option(label=
+    re.compile(...)) always crashed (Playwright's `label` only accepts a
+    literal string), and even a fixed version would have crashed again
+    since the assumed 'BOLIVIA (...)' option text doesn't exist (the real
+    option is the exact, plain 'BOLIVIA' -- with a separately-cased
+    'Bolivia' also present as a DIFFERENT site in the same dropdown)."""
     alarms = bolivia_monitoring_page.alarm_history()
     if not alarms.has_table():
         pytest.skip(f"no alarms currently open for {SITE_NAME}: {alarms.empty_state_text()!r}")
@@ -336,7 +343,17 @@ def test_status_reflects_real_work_order_state_not_fabricated_wo_open(bolivia_mo
     page = logged_in_page
     page.goto(f"{BASE_URL}/alarms")
     site_select = page.locator("select").first
-    site_select.select_option(label=re.compile(rf"^{re.escape(SITE_NAME)} \("))
+    # Two real, separate bugs in how this test picked the site, both
+    # confirmed live 2026-09-21, both silently swallowed by this test's own
+    # xfail wrapper the whole time (so this comparison never actually ran
+    # before today):
+    #   1. select_option's `label` param only accepts a literal string, not
+    #      a regex -- passing re.compile(...) always crashed with TypeError.
+    #   2. The assumed option shape ("BOLIVIA (...)") doesn't exist at all
+    #      -- the real option text is the exact, plain site name ("BOLIVIA"),
+    #      with a SEPARATE, differently-cased "Bolivia" also in the list
+    #      (a different site) that an exact match must not collide with.
+    site_select.select_option(label=SITE_NAME)
     page.wait_for_timeout(1500)
 
     wo_rows = page.evaluate("""
@@ -362,9 +379,14 @@ def test_status_reflects_real_work_order_state_not_fabricated_wo_open(bolivia_mo
         ui_status = ui_rows[match]
         assert ui_status != "WO Open", (
             f"alarm {match!r} has WO # = 'Not Created' on /alarms, but Alarm "
-            f"History's Status shows {ui_status!r} -- expected it to reflect "
-            f"the alarm's own condition ({row['condition']!r}), not a "
-            f"fabricated work-order state")
+            f"History's Status shows {ui_status!r} -- fabricating a work order "
+            f"that doesn't exist")
+        assert ui_status == "Not Created", (
+            f"alarm {match!r} has WO # = 'Not Created' on /alarms -- Alarm "
+            f"History's Status column (a WO-lifecycle field: 'WO Open'/'WO "
+            f"In-Progress'/'WO Closed') should say the same 'Not Created', "
+            f"matching the app's own established convention for this exact "
+            f"situation, not a differently-worded paraphrase -- got: {ui_status!r}")
     assert checked > 0, f"couldn't match any /alarms row to a live Alarm History row: {wo_rows!r} vs {ui_rows!r}"
 
 
@@ -416,7 +438,14 @@ def test_browse_history_24h_rows_show_day_label_and_clock(bolivia_monitoring_pag
 @pytest.mark.parametrize("window", ["Last 7 days", "Last 30 days"])
 def test_7d_and_30d_rows_show_full_datetime_not_day_split(bolivia_monitoring_page, window):
     """CA-28: unlike 24h's "Today" + clock split, 7d/30d rows show one full
-    "D month YYYY, HH:MM:SS" string -- no separate day label."""
+    datetime string -- no separate day label.
+
+    The regex below was updated 2026-09-21 (Qase Defect #53, re-verified
+    after the JF/FixMonitoring locale fix): it used to accept the old
+    Spanish, day-first shape ("11 sept 2026, HH:MM:SS") as if that were
+    correct -- the real spec is English, month-first ("Sep 11, 2026,
+    HH:MM:SS"). Confirmed live the format already changed; this test's own
+    stale regex was the only thing still failing here, not the app."""
     alarms = bolivia_monitoring_page.alarm_history()
     modal = alarms.open_browse_history()
     try:
@@ -426,8 +455,9 @@ def test_7d_and_30d_rows_show_full_datetime_not_day_split(bolivia_monitoring_pag
         assert modal.row_time_day(0) is None, (
             f"expected {window} rows to use the full-datetime format, not the 24h day/clock split")
         full_datetime = modal.row_time_datetime(0)
-        assert re.match(r"^\d{1,2}\s+\w+\.?\s+\d{4},\s*\d{2}:\d{2}:\d{2}$", full_datetime or ""), (
-            f"expected a 'D month YYYY, HH:MM:SS' datetime, got: {full_datetime!r}")
+        assert re.match(r"^[A-Za-z]+\.?\s+\d{1,2},\s+\d{4},\s*\d{2}:\d{2}:\d{2}$", full_datetime or ""), (
+            f"expected an English, month-first 'Month D, YYYY, HH:MM:SS' datetime, "
+            f"got: {full_datetime!r}")
     finally:
         modal.close()
 
@@ -443,6 +473,32 @@ def test_day_range_filter_only_appears_for_7d_and_30d(bolivia_monitoring_page):
         assert modal.has_day_range_filter(), "expected a day-range filter on the 7d window"
         modal.select_window("Last 30 days")
         assert modal.has_day_range_filter(), "expected a day-range filter on the 30d window"
+    finally:
+        modal.close()
+
+
+_SPANISH_DAY_ABBR = {"lun", "mar", "mie", "mié", "jue", "vie", "sab", "sáb", "dom"}
+
+
+def test_day_range_dropdown_options_render_in_english(bolivia_monitoring_page):
+    """CONFIRMED DEFECT (Qase Defect #52, same shared modal component as
+    Event Log's own equivalent test): the day-range dropdown's own
+    <option> text rendered Spanish weekday/month abbreviations (e.g. 'sab,
+    5 sept 2026') instead of English (e.g. 'Sat, Sep 5, 2026')."""
+    alarms = bolivia_monitoring_page.alarm_history()
+    modal = alarms.open_browse_history()
+    try:
+        modal.select_window("Last 7 days")
+        option_texts = modal.day_range_option_texts()
+        assert option_texts, "expected at least one day-range option"
+
+        spanish_found = [
+            t for t in option_texts
+            if re.match(r"^\w+,", t) and t.split(",")[0].strip().lower() in _SPANISH_DAY_ABBR
+        ]
+        assert not spanish_found, (
+            f"expected all day-range options in English, found Spanish-looking "
+            f"option(s): {spanish_found!r} (full list: {option_texts!r})")
     finally:
         modal.close()
 
@@ -473,7 +529,7 @@ def test_day_range_filter_narrows_the_result_count(bolivia_monitoring_page):
 
 @pytest.mark.parametrize("window", ["Last 24 hours", "Last 7 days", "Last 30 days"])
 def test_pagination_total_never_exceeds_documented_query_limit(bolivia_monitoring_page, window):
-    """CA-24/CA-26: docs/OF-148.txt's own query limits (24h<=1000,
+    """CA-24/CA-26: Jira story OF-148's own query limits (24h<=1000,
     7d<=2000, 30d<=5000) -- read from the pagination footer's "of N" text."""
     alarms = bolivia_monitoring_page.alarm_history()
     modal = alarms.open_browse_history()
@@ -584,3 +640,53 @@ def test_close_and_reopen_resets_to_default_window_and_page(bolivia_monitoring_p
         assert modal.current_page_number() == 1, "expected the page to reset to 1"
     finally:
         modal.close()
+
+
+LAPTOP_VIEWPORT = {"width": 1366, "height": 768}
+
+
+def test_time_column_does_not_overlap_device_on_laptop_viewport(bolivia_monitoring_page):
+    """CONFIRMED FIXED 2026-09-30 (Qase Defect #67): re-verified at 1366x768
+    -- the Time cell's content no longer overflows its own cell width, so
+    it no longer covers the neighboring Device column. xfail removed.
+
+    Originally: CONFIRMED DEFECT (2026-09-22, reported by the user after noticing
+    the Time column visibly covers/overlaps the Device column on a laptop
+    screen, but not on an external monitor). Same root cause and same
+    detection technique already confirmed for Qase Defect TBD (Fleet
+    Overview's 'Power (kW)' header) and the Context-label-overlap defect
+    (Site Load & Backup Context, Qase Defect #45): the Time cell uses
+    white-space: nowrap + overflow: visible, and its own cell narrows
+    along with everything else at laptop resolutions -- the cell's
+    CONTENT no longer fits, but instead of wrapping/truncating, the
+    overflow renders past the cell's own right edge. Since the Device
+    column starts immediately where the Time column ends (no gap between
+    them), that overflow visually lands on top of Device's own content.
+
+    Confirmed live at 1366x768 (the same representative laptop resolution
+    already established for the Fleet Overview defect): Time cell needs
+    158px (scrollWidth) but only has 107px (clientWidth) -- 51px of
+    overflow, directly into Device's space, which starts exactly at the
+    Time cell's right edge with zero gap.
+
+    Restores the session-scoped page's viewport afterward so later tests
+    still run at the 1920x1080 BrowserFactory default they assume."""
+    page = bolivia_monitoring_page.page
+    original_viewport = page.viewport_size
+    try:
+        page.set_viewport_size(LAPTOP_VIEWPORT)
+        alarms = bolivia_monitoring_page.alarm_history()
+        page.wait_for_timeout(500)
+        if not alarms.has_table():
+            pytest.skip(f"no alarms currently open for {SITE_NAME}: {alarms.empty_state_text()!r}")
+
+        time_cell = alarms.rows().first.locator("td").nth(0)
+        overflow_info = time_cell.evaluate(
+            "el => ({scrollWidth: el.scrollWidth, clientWidth: el.clientWidth})")
+        assert overflow_info["scrollWidth"] <= overflow_info["clientWidth"], (
+            f"Time column's content ({overflow_info['scrollWidth']}px) overflows its own cell "
+            f"({overflow_info['clientWidth']}px) at {LAPTOP_VIEWPORT} -- since the Device column "
+            f"starts immediately to the right with no gap, this overflow visually covers Device's "
+            f"own content instead of wrapping or truncating")
+    finally:
+        page.set_viewport_size(original_viewport)

@@ -30,6 +30,7 @@ import sys
 import time
 
 from shared.domain import alarm_catalog as cat
+from shared.domain.overrides import Overrides
 
 # u32 bases by type
 _BASE = {
@@ -45,35 +46,6 @@ def _bit_to_register(base_hr, bit):
     if bit < 16:
         return base_hr + 1, (1 << bit)        # low word
     return base_hr, (1 << (bit - 16))         # high word
-
-
-class Overrides:
-    """What to do to each register: OR (turn on), CLEAR (turn off), REPLACE (set value)."""
-
-    def __init__(self):
-        self.set = {}      # {reg16: mask to turn on}
-        self.clear = {}    # {reg16: mask to turn off}
-        self.replace = {}  # {reg16: value to set} (telemetry)
-        self.unsupported = []  # [(rule_id, reason)]
-
-    def _or(self, reg, mask):
-        self.set[reg] = self.set.get(reg, 0) | mask
-
-    def _and_clear(self, reg, mask):
-        self.clear[reg] = self.clear.get(reg, 0) | mask
-
-    def _replace(self, reg, value):
-        self.replace[reg] = value & 0xFFFF
-
-    def apply_to(self, reg, value):
-        """What the value of `reg` would become after the overrides (used by the proxy)."""
-        if reg in self.replace:
-            return self.replace[reg] & 0xFFFF        # REPLACE wins
-        value = (value | self.set.get(reg, 0)) & ~self.clear.get(reg, 0)
-        return value & 0xFFFF
-
-    def touched_registers(self):
-        return sorted(set(self.set) | set(self.clear) | set(self.replace))
 
 
 def overrides_for(rule_ids):
@@ -112,37 +84,6 @@ def overrides_for(rule_ids):
         else:
             ov.unsupported.append((rid, "ems/trend: the cause isn't in Modbus"))
     return ov
-
-
-class Schedule:
-    """Timeline: at second t, turn certain alarms on/off.
-    Alarms stay active until a later event turns them off (consistent with
-    OmniOps not closing alarms)."""
-
-    def __init__(self):
-        self.events = []      # [(t, 'on'|'off', rule_id)]
-
-    def turn_on(self, second, *rule_ids):
-        for rule_id in rule_ids:
-            self.events.append((second, "on", rule_id))
-        return self
-
-    def turn_off(self, second, *rule_ids):
-        for rule_id in rule_ids:
-            self.events.append((second, "off", rule_id))
-        return self
-
-    def active_at(self, second):
-        """Set of alarms active at that instant, based on events up to then."""
-        active = set()
-        for event_second, action, rule_id in sorted(self.events, key=lambda e: e[0]):
-            if event_second > second:
-                break
-            active.add(rule_id) if action == "on" else active.discard(rule_id)
-        return active
-
-    def overrides_at(self, second):
-        return overrides_for(self.active_at(second))
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +139,7 @@ def state_file():
 
 # ---------------------------------------------------------------------------
 def _self_check():
+    from shared.domain.schedule import Schedule
     print("(injection brain test — pure logic, no network)\n")
     ok = True
 

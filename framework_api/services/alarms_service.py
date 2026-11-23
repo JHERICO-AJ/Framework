@@ -1,7 +1,8 @@
 """AlarmsService — the ALARMS domain of the API. Returns Alarm models, not dicts."""
 from __future__ import annotations
 
-from framework_api.services.base_service import ApiListResponse, BaseService
+from framework_api.services.api_list_response import ApiListResponse
+from framework_api.services.base_service import BaseService
 from framework_api.models.alarm import Alarm
 
 

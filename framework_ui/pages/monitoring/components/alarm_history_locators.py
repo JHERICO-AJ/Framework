@@ -1,4 +1,4 @@
-"""Selectors for the Alarm History card (Data & Monitoring -- docs/OF-148.txt):
+"""Selectors for the Alarm History card (Data & Monitoring -- Jira story OF-148):
 a live table (Time/Device/Alarm/Severity/Status) plus a "Browse history"
 modal -- Event Log's direct sibling in the same "Logs" section.
 

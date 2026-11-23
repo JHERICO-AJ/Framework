@@ -1,5 +1,5 @@
 """Selectors for the Thermal Diagnostics card (Data & Monitoring --
-docs/OF-149.txt): a 3-block site-level thermal summary (Cell Temperature
+Jira story OF-149): a 3-block site-level thermal summary (Cell Temperature
 Delta, Highest / Lowest Temp, Average Cell Temp) -- always live, no
 24h/7d/30d applicability (CA-05).
 

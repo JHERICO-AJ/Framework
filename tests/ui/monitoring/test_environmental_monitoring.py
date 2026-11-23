@@ -1,4 +1,4 @@
-"""Data & Monitoring - Environmental Monitoring (docs/OF-151.txt): a
+"""Data & Monitoring - Environmental Monitoring (Jira story OF-151): a
 site-level, ALWAYS-LIVE 2-metric summary (Ambient Temp, Humidity), each
 independently resolved On-site (SYS sensor) vs API (Intake external
 weather fallback) -- explicitly NOT affected by the page's 24h/7d/30d
@@ -19,7 +19,7 @@ test_site_load_backup_context.py.
 BOLIVIA (Fractal). The HU's own "Fuentes por protocolo" table documents a
 real, deliberate gap: "Fractal (fase actual): -- (sin mapeo ambiental)" --
 so both metrics always fall back to the Intake config's External/Environment
-fields (docs/omniops_data_intake_BOLIVIA.xlsx: ambient_temperature=25,
+fields (the internal QA note 'omniops_data_intake_BOLIVIA': ambient_temperature=25,
 relative_humidity=50), confirmed live 2026-09-13 AND via the real backend
 source: FractalRawDataMapper.cs never assigns AmbientTemp/Humidity from any
 Fractal field (only a comment noting the gap), so SiteState.AmbientTemp/
@@ -57,7 +57,7 @@ SITE_NAME = "BOLIVIA"
 EXPECTED_BLOCK_TITLES = ["Ambient Temp", "Humidity"]
 VALID_SOURCES = {"On-site", "API"}
 
-# Ground truth for BOLIVIA's own Intake config (docs/omniops_data_intake_BOLIVIA.xlsx,
+# Ground truth for BOLIVIA's own Intake config (the internal QA note 'omniops_data_intake_BOLIVIA',
 # "Intake Fields" sheet, section=external/group=env) -- only meaningful while the
 # UI's own source flag says "API" (i.e. no on-site sensor is currently winning).
 INTAKE_EXTERNAL_AMBIENT_TEMP_C = 25.0
@@ -172,7 +172,7 @@ def test_ambient_temp_matches_intake_config_when_source_is_api(bolivia_monitorin
     fabricated number): whenever the UI's own source flag says "API" (no
     on-site sensor winning), the displayed value matches BOLIVIA's
     configured external ambient_temperature -- confirmed against
-    docs/omniops_data_intake_BOLIVIA.xlsx. If the source is ever "On-site"
+    the internal QA note 'omniops_data_intake_BOLIVIA'. If the source is ever "On-site"
     instead (a real SYS sensor mapped), this check no longer applies and
     is skipped rather than failing.
 
@@ -208,28 +208,22 @@ def test_humidity_matches_intake_config_when_source_is_api(bolivia_monitoring_pa
         f"({INTAKE_EXTERNAL_HUMIDITY_PCT})")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-13): the '(API)' flag is misleading -- "
-           "it implies a live external weather feed (matching the mapping's "
-           "own 'Telemetry Source: Weather station / site sensor / EMS "
-           "external feed' + 'Refresh Rate: 1-15 min'), but "
-           "MonitoringComputedService.BuildEnvironmental never calls the "
-           "backend's real, working weather integration (Modules/Weather: "
-           "WeatherService + AzureMapsWeatherClient, real per-site lat/lon "
-           "Azure Maps calls, refreshed hourly, persisted to "
-           "weather.WeatherData). BOLIVIA already has real, recent rows "
-           "there. Instead, ExternalAmbientTemp/ExternalHumidity come "
-           "solely from a static Intake config default (whose own "
-           "Reference text says 'Default nominal ambient temperature/"
-           "humidity' -- a placeholder). So the panel shows a frozen "
-           "25.0°C/50% while the site's real live weather (already "
-           "recorded in the same DB) is a completely different, "
-           "constantly-changing value.")
 def test_ambient_temp_reflects_the_sites_real_live_weather_feed(bolivia_monitoring_page, db_conn, bolivia_site_id):
     """When the UI's source flag says (API), the value should come from
     the site's real live external weather feed (weather.WeatherData,
-    IsCurrent=True) -- not a static, never-changing Intake default."""
+    IsCurrent=True) -- not a static, never-changing Intake default.
+
+    CONFIRMED DEFECT 2026-09-13 (Qase Defect #48): MonitoringComputedService.
+    BuildEnvironmental never called the backend's real weather integration
+    -- ExternalAmbientTemp/ExternalHumidity came solely from a static
+    Intake config default, so the panel showed a frozen 25.0°C/50% while
+    the site's real live weather was a completely different, changing
+    value. FIXED as of 2026-09-21 (re-verified after the JF/FixMonitoring
+    deploy). An earlier same-day re-check wrongly concluded this was still
+    broken: that was actually get_current_weather()'s own query missing an
+    ORDER BY, nondeterministically returning a stale IsCurrent=true row
+    (the backend can leave more than one flagged current) instead of the
+    real latest one -- see that function's docstring for the fix."""
     from shared.datasource.db_source import get_current_weather
 
     env = bolivia_monitoring_page.environmental_monitoring()
@@ -248,13 +242,12 @@ def test_ambient_temp_reflects_the_sites_real_live_weather_feed(bolivia_monitori
         f"static config default")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-13): same root cause as the Ambient "
-           "Temp version above -- Humidity's '(API)' fallback also never "
-           "reads the real weather.WeatherData row; it's a static Intake "
-           "config default instead.")
 def test_humidity_reflects_the_sites_real_live_weather_feed(bolivia_monitoring_page, db_conn, bolivia_site_id):
+    """CONFIRMED DEFECT 2026-09-13 (Qase Defect #48, same root cause as
+    the Ambient Temp version above): Humidity's '(API)' fallback never
+    read the real weather.WeatherData row; it was a static Intake config
+    default instead. FIXED as of 2026-09-21 (re-verified after the
+    JF/FixMonitoring deploy)."""
     from shared.datasource.db_source import get_current_weather
 
     env = bolivia_monitoring_page.environmental_monitoring()

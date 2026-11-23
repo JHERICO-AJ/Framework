@@ -11,7 +11,7 @@ with the simulator running. Reading the simulator directly sidesteps that
 gap: whatever it emits here is the same value the UI/API should eventually
 show, regardless of what's or isn't cached/persisted in between. Also the
 right ground truth for Device Status Panel specifically: confirmed
-2026-09-07 in docs/OF-140.txt's own "Origen en pantalla (cache vs base de
+2026-09-07 in Jira story OF-140's own "Origen en pantalla (cache vs base de
 datos)" table that the panel reads live in-memory SiteState, not the DB.
 
 Same pattern as shared/datasource/modbus_source.py (the EPC equivalent),
@@ -178,7 +178,7 @@ def read_fractal_emu_pcs_comm_connected(site_name: str, pcs_index: int, host: st
     """Reads whether the EMU reports its RS485 link to one PCS as Connected
     -- EMU status_word_3, bit `pcs_index` (0-based; PCS #1 is bit 0).
     RS485 is the default PcsCommTransport (per
-    docs/fractal-alarms-coverage-open-by-id 1.md's alarm #52 intake note,
+    the internal QA note 'fractal-alarms-coverage-open-by-id 1''s alarm #52 intake note,
     "aun no en Alarm Thresholds UI; default RS485"); CAN (status_word_5)
     isn't read here since BOLIVIA isn't configured for it. Ground truth for
     alarm #52 "EMS-PCS Comm Lost" -- the real signal behind the EMS IPC &
@@ -193,7 +193,7 @@ def read_fractal_emu_pcs_comm_connected(site_name: str, pcs_index: int, host: st
 
 def read_fractal_pcs_active_power_kw(site_name: str, pcs_index: int, host: str = SIM_HOST) -> float:
     """Reads one PCS's own p_ac_kw -- ground truth for the Telemetry Data
-    Table's per-device "Active Power" row (docs/OF-141.txt: PcsModule.p_ac_kw
+    Table's per-device "Active Power" row (Jira story OF-141: PcsModule.p_ac_kw
     -> "Active Power" / "PCS / Inverter"), which shows one row per PCS
     (Device "PCS-1"/"PCS-2"/"PCS-3"), unlike the Device Status Panel's PCS
     card which sums all 3 (read_fractal_site_total_kw)."""
@@ -209,7 +209,7 @@ def read_fractal_pcs_active_power_kw(site_name: str, pcs_index: int, host: str =
 def read_fractal_site_total_kw(site_name: str, host: str = SIM_HOST) -> float:
     """Sum of p_ac_kw across the site's 3 PCS instances -- the ground truth
     for the Device Status Panel's PCS/Inverter "Actual" value per
-    docs/OF-140.txt's Calculo rule ("suma PCS individuales -> agregado SYS
+    Jira story OF-140's Calculo rule ("suma PCS individuales -> agregado SYS
     -> valor sitio"), NOT read_fractal_emu_active_power_kw's EMU-level
     aggregate (confirmed 2026-09-07 the two genuinely diverge by ~0.1 kW,
     rounding -- see that function's docstring)."""
@@ -233,7 +233,7 @@ def read_fractal_meter_total_active_power_kw(site_name: str, host: str = SIM_HOS
     "Import / export tags partial" isn't "Missing" because Fractal DOES
     have real, live demand telemetry -- it's the OTHER required input
     ("carga real"/RealLoad) that's permanently absent, confirmed for BOTH
-    manufacturers (docs/OF-140.txt line 322-325: "No en snapshot
+    manufacturers (Jira story OF-140 line 322-325: "No en snapshot
     EPC/Fractal actual"), not a Fractal-only gap."""
     client, unit_id = _connect(site_name, host)
     try:
@@ -247,7 +247,7 @@ def read_fractal_meter_total_active_power_kw(site_name: str, host: str = SIM_HOS
 def read_fractal_emu_active_power_kw(site_name: str, host: str = SIM_HOST) -> float:
     """Reads EmuStatus.active_power_kw directly -- the EMU's OWN reported
     site-level aggregate, as opposed to summing each PCS's p_ac_kw
-    (read_fractal_site_total_kw). docs/OF-140.txt's Device Status Panel
+    (read_fractal_site_total_kw). Jira story OF-140's Device Status Panel
     Calculo rule for the PCS/Inverter card says the site value must come
     from summing individual PCS values, NOT from this EMU-level field
     directly -- this function exists to let a test PROVE whether the two
@@ -259,10 +259,10 @@ def read_fractal_emu_active_power_kw(site_name: str, host: str = SIM_HOST) -> fl
 def read_fractal_emu_station_state(site_name: str, host: str = SIM_HOST) -> str:
     """Reads EMU.station_state directly from the simulator -- the field
     that drives most of the Device Status Panel's card logic per
-    docs/OF-140.txt (Battery/BMS, PCS/Inverter, Network/Tunnel all read
+    Jira story OF-140 (Battery/BMS, PCS/Inverter, Network/Tunnel all read
     this, as SysStatus). Ground truth for Device Status Panel cross-layer
     checks that don't go through DB (which the panel doesn't read -- see
-    docs/OF-140.txt's own "Origen en pantalla (cache vs base de datos)"
+    Jira story OF-140's own "Origen en pantalla (cache vs base de datos)"
     table)."""
     client, unit_id = _connect(site_name, host)
     try:
@@ -274,7 +274,7 @@ def read_fractal_emu_station_state(site_name: str, host: str = SIM_HOST) -> str:
 
 def read_fractal_emu_soc_pct(site_name: str, host: str = SIM_HOST) -> float:
     """Reads EmuStatus.system_soc_pct directly -- ground truth for the
-    Battery/BMS card's "SoC range" line (docs/OF-140.txt: Fractal EMU
+    Battery/BMS card's "SoC range" line (Jira story OF-140: Fractal EMU
     SystemSocPct -> "SOC del sitio")."""
     return _read_emu_uint16_scaled(site_name, EMU_SYSTEM_SOC_PCT_OFFSET, PERCENT_SCALE, host)
 
@@ -282,7 +282,7 @@ def read_fractal_emu_soc_pct(site_name: str, host: str = SIM_HOST) -> float:
 def read_fractal_pcs_status_word_1(site_name: str, pcs_index: int, host: str = SIM_HOST) -> int:
     """Reads one PCS's raw status_word_1 register -- the bitfield that
     drives the PCS/Inverter card's PcsEvt1 status via
-    PcsEvt1StatusHelper.MapCardStatus (docs/DeviceStatusPanel.md), decoded
+    PcsEvt1StatusHelper.MapCardStatus (the internal QA note 'DeviceStatusPanel'), decoded
     with an EPC-oriented bit catalog. `pcs_index` is 0/1/2 (PCS_BASES
     index), NOT the 1-based PCS number. Ground truth for proving that
     catalog mismatches Fractal's real bits (PCS_STATUS_WORD_1_BENIGN_BITS)."""
@@ -309,7 +309,7 @@ def read_fractal_pcs_alarm_words(site_name: str, pcs_index: int, host: str = SIM
 
 def read_fractal_emu_dc_current_a(site_name: str, host: str = SIM_HOST) -> float:
     """Reads EmuStatus.dc_current_a directly -- ground truth for Dispatch
-    Limits & Tracking's "DC Bus Current" (docs/OF-145.txt Calculo rule,
+    Limits & Tracking's "DC Bus Current" (Jira story OF-145 Calculo rule,
     preference order #1: "Voltaje y corriente del banco/sitio (mensaje del
     gateway)" -- this EMU-level site aggregate IS that banco/sitio value).
     Offset 33, INT32, scale 0.1 -- confirmed against
@@ -320,7 +320,7 @@ def read_fractal_emu_dc_current_a(site_name: str, host: str = SIM_HOST) -> float
 
 def read_fractal_emu_dc_voltage_v(site_name: str, host: str = SIM_HOST) -> float:
     """Reads EmuStatus.dc_voltage_v directly -- ground truth for Dispatch
-    Limits & Tracking's "DC Bus Voltage" (docs/OF-145.txt Calculo rule,
+    Limits & Tracking's "DC Bus Voltage" (Jira story OF-145 Calculo rule,
     same preference-order-#1 banco/sitio value as DC Bus Current above).
     Offset 35, UINT32, scale 0.1 -- confirmed against
     omniops-bess-edge/modbus_common/fractal_addressing_map.py's EMU_FIELDS,
@@ -330,7 +330,7 @@ def read_fractal_emu_dc_voltage_v(site_name: str, host: str = SIM_HOST) -> float
 
 def read_fractal_emu_soh_pct(site_name: str, host: str = SIM_HOST) -> float:
     """Reads EmuStatus.system_soh_pct directly -- ground truth for the
-    Battery/BMS card's "SoH" line (docs/OF-140.txt: Fractal EMU
+    Battery/BMS card's "SoH" line (Jira story OF-140: Fractal EMU
     SystemSohPct -> "SOH del sitio"). Confirmed 2026-09-07 this is a
     straight passthrough (no aggregation/fallback) -- e.g. raw=990 ->
     99.0%, matching the UI exactly."""

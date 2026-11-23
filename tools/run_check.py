@@ -22,8 +22,9 @@ from shared.datasource.modbus_source import ModbusReader
 from shared.domain import alarm_catalog as cat
 from shared.domain.injection import save_state, clear_state
 from shared.domain.oracle import evaluate
-from shared.domain.verdict import classify, PASS, PASS_HEALTHY, NOT_VERIFIABLE
+from shared.domain.verdict import classify, PASS, NOT_VERIFIABLE
 from framework_api.client.api_client import ApiClient
+from tools.check_result import CheckResult
 from framework_api.services.alarms_service import AlarmsService
 
 TIMEOUT_S = 45
@@ -47,22 +48,6 @@ def _api_snapshot(alarms_service):
     return open_ids, last_by_rule
 
 
-class Result:
-    def __init__(self, rule_id, name):
-        self.rule_id = rule_id
-        self.name = name
-        self.cause = None
-        self.in_api = False
-        self.verdict = NOT_VERIFIABLE
-        self.last = None
-        self.appeared_in_s = None
-        self.time_ok = None
-
-    @property
-    def ok(self):
-        return self.verdict in (PASS, PASS_HEALTHY, NOT_VERIFIABLE)
-
-
 def verify_alarms(ids, alarms_service, reader=None, timeout=TIMEOUT_S, tol_s=TOL_S,
                   at=0, live=False):
     """Injects ids, verifies cause(raw)+API+time, clears. Returns [Result]."""
@@ -71,7 +56,7 @@ def verify_alarms(ids, alarms_service, reader=None, timeout=TIMEOUT_S, tol_s=TOL
         reader = ModbusReader()
         reader.read_register(cat.ADDR["evt1_802"])   # fails clearly if there's no proxy/sim
 
-    res = {r: Result(r, cat.BY_RULE_ID.get(r, {}).get("name", f"rule {r}")) for r in ids}
+    res = {r: CheckResult(r, cat.BY_RULE_ID.get(r, {}).get("name", f"rule {r}")) for r in ids}
     if at:
         if live:
             print(f"Firing in {at}s…")

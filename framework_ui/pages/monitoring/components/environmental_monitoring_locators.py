@@ -1,5 +1,5 @@
 """Selectors for the Environmental Monitoring card (Data & Monitoring --
-docs/OF-151.txt): 2 device-card blocks (Ambient Temp, Humidity), each an
+Jira story OF-151): 2 device-card blocks (Ambient Temp, Humidity), each an
 independently-resolved On-site (SYS sensor) vs API (Intake external
 weather fallback) value -- always live, no 24h/7d/30d applicability
 (CA-05), same .device-card/.metric-value pattern as PCS Energy

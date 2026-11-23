@@ -1,5 +1,5 @@
 """FaultLocalization -- reusable component: the 8-row rack/pack/cell
-extreme-location card on Data & Monitoring (docs/OF-153.txt)."""
+extreme-location card on Data & Monitoring (Jira story OF-153)."""
 from __future__ import annotations
 
 import re

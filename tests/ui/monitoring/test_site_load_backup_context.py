@@ -1,4 +1,4 @@
-"""Data & Monitoring - Site Load & Backup Context (docs/OF-152.txt): a
+"""Data & Monitoring - Site Load & Backup Context (Jira story OF-152): a
 3-block, site-level, ALWAYS-LIVE summary (Real Load, Estimated Backup,
 plus a lateral ATS/Net power/Context block) -- explicitly NOT affected by
 the page's 24h/7d/30d range selector (CA-05), same pattern as Thermal
@@ -12,7 +12,7 @@ MeterDemand + ΣPCS (never the SYS RealLoad field), and ATS always shows
 "—" (never mapped for Fractal). Confirmed live 2026-09-13 and via the
 real API (siteLoadContext.atsStatus is null).
 
-BOLIVIA's own Intake config (docs/omniops_data_intake_BOLIVIA.xlsx,
+BOLIVIA's own Intake config (the internal QA note 'omniops_data_intake_BOLIVIA',
 "Intake Fields" sheet) has real, non-placeholder values for all 3
 Estimated-Backup/Context inputs: battery_capacity_kwh=100000,
 forced_reserve_soc_pct=10, primary_use_case="Grid storage / energy
@@ -136,7 +136,7 @@ def test_net_power_keeps_its_sign(bolivia_monitoring_page):
 def test_context_matches_the_configured_primary_use_case(bolivia_monitoring_page):
     """CA-19: Context shows the Primary Use Case text configured in
     Intake (Owner Operational) -- confirmed against
-    docs/omniops_data_intake_BOLIVIA.xlsx's own configured value."""
+    the internal QA note 'omniops_data_intake_BOLIVIA''s own configured value."""
     site_load = bolivia_monitoring_page.site_load_backup_context()
     assert site_load.context_value() == EXPECTED_CONTEXT_TEXT, (
         f"expected Context to show the configured Primary Use Case "
@@ -177,54 +177,68 @@ def test_estimated_backup_moves_inversely_with_real_load(bolivia_monitoring_page
 
 def test_real_load_matches_meter_plus_pcs_sum_from_simulator(bolivia_monitoring_page):
     """True cross-layer ground truth (UI vs the Fractal simulator directly,
-    not just the DB/API): docs/OF-152.txt's own fallback formula for a
-    Fractal site (no SYS RealLoad mapped) is |MeterDemand + ΣPCS|.
-    Confirmed live 2026-09-13 with tight (3s) sampling: every time the UI's
-    Real Load value changes, it matches |meter + pcs_sum| computed from a
-    direct simulator read taken 1-2 ticks earlier, to within normal SignalR
-    latency -- e.g. UI=10657 lined up with a computed 10657.4, UI=7884
-    with 7884.3, UI=4918 with 4917.9. Uses the same convergence-window
-    technique as other live-simulator checks in this project (sample
-    repeatedly, accept a match within any recent sample)."""
+    not just the DB/API). Jira story OF-152's own fallback formula for a
+    Fractal site (no SYS RealLoad mapped) was |MeterDemand + ΣPCS| -- that
+    was correct under the OLD, pre-Sign-Convention assumption (positive
+    meter = Import). CORRECTED 2026-09-30 per direct dev clarification
+    (MonitoringFixV2.md item 7, Sign Convention decided 2026-09-23 --
+    AFTER OF-152 was written): MonitoringComputedService now computes a
+    SIGNED RealLoad = -meterDemand + ΣPCS for BOLIVIA's convention
+    (METER_MINUS_PCS, the default, same as Sites); METER_PLUS_PCS would
+    instead add them (meterDemand + ΣPCS). No more Abs(): if the signed
+    result is <= 0, Real Load is null ("--") instead of a fabricated
+    positive magnitude -- previously Abs() could turn a real export into
+    phantom load. Confirmed live via direct simulator reads: the UI
+    tracks (pcs_sum - meter) directly (e.g. UI=89 lined up with a
+    computed 89.2, UI=105 with 96.5) -- the old formula's values
+    (~6,400-12,900 kW) never came close to the UI's actual Real Load
+    (~60-120 kW). Uses the same convergence-window technique as other
+    live-simulator checks in this project (sample repeatedly, accept a
+    match within any recent sample)."""
     site_load = bolivia_monitoring_page.site_load_backup_context()
 
     history = []
+    saw_non_positive = False
     for _ in range(10):
         meter = read_fractal_meter_total_active_power_kw(SITE_NAME)
         pcs_sum = sum(read_fractal_pcs_active_power_kw(SITE_NAME, i) for i in range(3))
-        history.append(abs(meter + pcs_sum))
+        real_load_signed = pcs_sum - meter  # METER_MINUS_PCS: -meter + pcs_sum
 
         ui_real_load = site_load.real_load_kw()
-        if ui_real_load is not None:
-            match = next((h for h in history if abs(h - ui_real_load) <= 100), None)
-            if match is not None:
-                return  # confirmed
+        if real_load_signed > 0:
+            history.append(real_load_signed)
+            if ui_real_load is not None:
+                match = next((h for h in history if abs(h - ui_real_load) <= 100), None)
+                if match is not None:
+                    return  # confirmed
+        else:
+            saw_non_positive = True
+            if ui_real_load is None:
+                return  # confirmed: non-positive signed load -> UI correctly shows "--", not a fabricated magnitude
+
         bolivia_monitoring_page.page.wait_for_timeout(3000)
 
-    pytest.fail(f"UI Real Load never matched |meter + ΣPCS| within tolerance across 10 samples. "
+    pytest.fail(f"UI Real Load never matched the signed (pcs_sum - meter) formula within tolerance "
+                f"across 10 samples (saw_non_positive={saw_non_positive}). Recent positive candidates: {history}")
+
+    pytest.fail(f"UI Real Load never matched |ΣPCS − meter| within tolerance across 10 samples. "
                 f"Recent computed values: {history}")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-13): docs/OF-152.txt's own fallback "
-           "formula for Net power (no SYS PcsPower mapped for Fractal) is "
-           "'suma de potencia activa de todos los PCS individuales' -- the "
-           "SUM of PCS-1 + PCS-2 + PCS-3, same as Real Load's own ΣPCS "
-           "term. Confirmed live with tight (3s) sampling against the "
-           "Fractal simulator directly: the UI's Net power value "
-           "consistently matches ΣPCS / 3 (the AVERAGE of the 3 units, "
-           "not their sum) -- e.g. UI=1801 vs ΣPCS=5916.8 (ratio 3.29), "
-           "UI=2299 vs a moment where ΣPCS/3=2299.2 (near-exact), UI=2538 "
-           "vs ΣPCS/3=2541.8/2607.5 across two adjacent samples. The ratio "
-           "of ΣPCS to the displayed value consistently lands around 3.0, "
-           "matching BOLIVIA's exact PCS count -- Net power under-reports "
-           "the site's true net power by roughly a factor of 3.")
 def test_net_power_matches_pcs_sum_not_pcs_average_from_simulator(bolivia_monitoring_page):
     """Requires a decent power magnitude before comparing (>=1500 kW),
     specifically to avoid a false pass from both the SUM and the AVERAGE
     hypotheses coincidentally agreeing near a zero-crossing (both ~0 at
-    the same moment isn't evidence either way)."""
+    the same moment isn't evidence either way).
+
+    CONFIRMED DEFECT 2026-09-13 (Qase Defect #44): Jira story OF-152's own
+    fallback formula for Net power (no SYS PcsPower mapped for Fractal) is
+    the SUM of PCS-1+PCS-2+PCS-3, same as Real Load's own ΣPCS term --
+    confirmed live the UI's Net power value consistently matched ΣPCS/3
+    (the AVERAGE, not the sum), under-reporting by roughly a factor of 3
+    (BOLIVIA's exact PCS count). FIXED as of 2026-09-21 (re-verified after
+    the JF/FixMonitoring deploy, the internal QA note 'MnitoringFix' section 2.4's "Net
+    Power... si no, suma de PCS")."""
     site_load = bolivia_monitoring_page.site_load_backup_context()
 
     for _ in range(15):
@@ -240,31 +254,17 @@ def test_net_power_matches_pcs_sum_not_pcs_average_from_simulator(bolivia_monito
     pytest.skip("never saw a sample with |ΣPCS| >= 1500 kW and a real UI Net Power value to compare")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-13): the Context value's computed "
-           "style has white-space: nowrap, overflow: visible, and "
-           "text-overflow: clip (no wrapping/truncation at all). Its long "
-           "sibling value forces the flex layout to squeeze the 'Context' "
-           "LABEL down to a getBoundingClientRect() width of 0px -- but "
-           "since the label itself also has overflow allowed, its text "
-           "keeps rendering past that collapsed box, visually appearing "
-           "UNDERNEATH the value text (confirmed via screenshot: 'Co' is "
-           "visible bleeding out from behind 'Grid storage...'). A plain "
-           "box-vs-box overlap check misses this (a 0-width box never "
-           "'overlaps' anything by rectangle math) -- the real signal is "
-           "that the label's own rendered width collapsed to ~0 despite "
-           "having real text content.")
 def test_context_text_does_not_overlap_its_own_label(bolivia_monitoring_page):
-    """CONFIRMED DEFECT (2026-09-13): Context's value has no text
-    wrapping/truncation (white-space: nowrap, overflow: visible,
-    text-overflow: clip -- confirmed via computed style). With BOLIVIA's
+    """CONFIRMED DEFECT 2026-09-13 (Qase Defect #45): the Context value's
+    computed style had white-space: nowrap, overflow: visible, and
+    text-overflow: clip (no wrapping/truncation at all). With BOLIVIA's
     real configured Primary Use Case text ("Grid storage / energy
     arbitrage / ancillary services" -- much longer than the mapping doc's
     own short HTML Example "Behind-the-meter / UPS"), the value visibly
-    overflows past its row and squeezes the "Context" LABEL itself down
-    to a zero-width box, so its text renders on top of/underneath the
-    value. Checks that the label's own rendered box has a sane minimum
+    overflowed past its row and squeezed the "Context" LABEL itself down
+    to a zero-width box, so its text rendered on top of/underneath the
+    value. FIXED as of 2026-09-21 (re-verified after the JF/FixMonitoring
+    deploy). Checks that the label's own rendered box has a sane minimum
     width for its text, rather than being collapsed to ~0 by its
     overflowing sibling."""
     site_load = bolivia_monitoring_page.site_load_backup_context()
@@ -288,18 +288,15 @@ def test_context_text_does_not_overlap_its_own_label(bolivia_monitoring_page):
         f"rendering underneath the value instead of in its own space")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-13): same root cause as the "
-           "label-overlap defect above -- the Context value's right edge "
-           "extends past the card's own right edge (confirmed via "
-           "screenshot: the text is visibly clipped mid-word at the "
-           "card's boundary) because there's no wrapping/truncation "
-           "applied to long Context strings.")
 def test_context_text_does_not_overflow_past_the_card(bolivia_monitoring_page):
-    """Same root cause as the label-overlap defect above: the value's
-    right edge should stay within the card's own right edge, not spill
-    out/get clipped past it."""
+    """CONFIRMED DEFECT 2026-09-13 (Qase Defect #45, same root cause as
+    the label-overlap defect above): the Context value's right edge
+    extended past the card's own right edge, visibly clipped mid-word at
+    the card's boundary, because there was no wrapping/truncation applied
+    to long Context strings. FIXED as of 2026-09-21 (re-verified after
+    the JF/FixMonitoring deploy). Checks that the value's right edge stays
+    within the card's own right edge, not spilling out/getting clipped
+    past it."""
     site_load = bolivia_monitoring_page.site_load_backup_context()
     card = site_load.card()
 
@@ -373,24 +370,19 @@ def test_real_load_updates_live_without_a_manual_reload(bolivia_monitoring_page)
         f"but it stayed frozen at {samples[0]} the whole time: {samples}")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-13, Qase Defect #44): Site Load's Net "
-           "power under-reports the true site power by roughly a factor of "
-           "3 (matches PCS sum / 3, not the sum itself -- confirmed "
-           "separately against the live Fractal simulator by "
-           "test_net_power_matches_pcs_sum_not_pcs_average_from_simulator "
-           "above). [SLC-06] This is the same defect surfacing on a SECOND "
-           "surface: comparing against Site Power Telemetry's own "
-           "Charge/Discharge Power graph (same underlying signed power) "
-           "shows the same ~3x gap, confirming the two cards disagree with "
-           "each other, not just with the raw simulator.")
 def test_net_power_is_consistent_with_site_power_telemetry_graph(bolivia_monitoring_page):
     """[SLC-06] Site Load's Net power and Site Power Telemetry's Charge/
     Discharge Power both derive from the same underlying signed site power
     -- they should agree (within a generous tolerance that accounts for
     Site Load being a live instantaneous value vs. the chart's own
-    historical-bucket point, up to ~1h stale in the 24h view)."""
+    historical-bucket point, up to ~1h stale in the 24h view).
+
+    CONFIRMED DEFECT 2026-09-13 (Qase Defect #44): Site Load's Net power
+    under-reported the true site power by roughly a factor of 3 (matches
+    PCS sum / 3, not the sum itself) on this SECOND surface too, agreeing
+    with test_net_power_matches_pcs_sum_not_pcs_average_from_simulator's
+    own direct-simulator finding. FIXED as of 2026-09-21 (re-verified
+    after the JF/FixMonitoring deploy)."""
     site_load = bolivia_monitoring_page.site_load_backup_context()
     net_power_kw = site_load.net_power_kw()
     if net_power_kw is None:

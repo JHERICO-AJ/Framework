@@ -28,3 +28,20 @@ def load_credentials():
             return {"email": lines[0], "password": lines[1]}
     raise RuntimeError("No credentials found. Set OMNIOPS_EMAIL and OMNIOPS_PASSWORD "
                        "in a .env file (see .env.example).")
+
+
+# Quotation test accounts, one per role (app login only -- native email/password form). Each role reads
+# QUOTATION_<ROLE>_EMAIL / QUOTATION_<ROLE>_PASSWORD from .env. The DEFAULT_* ones are the approvers the system
+# assigns on its own from the amount rules. NOROLE is a user with no Quotation role at all. AM2 is a second AM,
+# used to check that one AM cannot see or change the quotations of another.
+QUOTATION_ROLES = ("AM", "AM2", "FPM", "BU", "CEO", "DEFAULT_FPM", "DEFAULT_BU", "DEFAULT_CEO", "NOROLE")
+
+
+def load_role_credentials(role):
+    """Returns {'email': ..., 'password': ...} for a Quotation test role, or None if not set in .env."""
+    if role not in QUOTATION_ROLES:
+        raise ValueError(f"role must be one of {QUOTATION_ROLES}, got {role!r}")
+    _load_dotenv()
+    email = os.environ.get(f"QUOTATION_{role}_EMAIL")
+    password = os.environ.get(f"QUOTATION_{role}_PASSWORD")
+    return {"email": email, "password": password} if email and password else None

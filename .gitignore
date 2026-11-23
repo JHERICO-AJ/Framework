@@ -13,3 +13,15 @@ venv/
 .pytest_cache/
 reports/
 inject_state.json
+
+# Personal working documents (Jira exports, notes, evidence): not part of the framework.
+# The few docs already tracked stay tracked; to share a new one on purpose use `git add -f docs/<file>`.
+docs/
+
+# Personal SQL scripts (checks, table discovery and cleanup of QA data): not shared with the team.
+tools/db/
+
+# session of the OEM test mailbox (never commit)
+.oem_mailbox_profile/
+# sessions of the notification test mailboxes (never commit)
+.mailbox_profile_*/

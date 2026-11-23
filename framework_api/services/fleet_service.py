@@ -8,24 +8,9 @@ what the Fleet Availability bar/card actually reads. Returns
 number, two keys), matching what the UI card/bar-legend both display."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 
+from framework_api.models.fleet_availability import FleetAvailability
 from framework_api.services.base_service import BaseService
-
-
-@dataclass(frozen=True)
-class FleetAvailability:
-    normal_pct: float
-    warning_pct: float
-    critical_pct: float
-
-    @classmethod
-    def from_json(cls, payload: dict) -> "FleetAvailability":
-        return cls(
-            normal_pct=payload["normalPercentage"],
-            warning_pct=payload["warningPercentage"],
-            critical_pct=payload["criticalPercentage"],
-        )
 
 
 class FleetService(BaseService):

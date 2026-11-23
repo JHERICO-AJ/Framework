@@ -22,7 +22,7 @@ class MonitoringService(BaseService):
         return MonitoringSummary.from_json(payload)
 
     def get_pcs_energy(self, site_id=SITE_ID, time_range="24h") -> dict:
-        """PCS Energy Statistics' own endpoint (docs/OF-150.txt: "GET
+        """PCS Energy Statistics' own endpoint (Jira story OF-150: "GET
         /monitoring/pcs-energy/{siteId}?timeRange="), confirmed via network
         capture 2026-09-11: {chargeEnergy, dischargeEnergy (kWh),
         chargeEnergyMWh, dischargeEnergyMWh (already rounded to 3
@@ -33,7 +33,7 @@ class MonitoringService(BaseService):
 
     def get_power_trend(self, site_id=SITE_ID, time_range="24h") -> list[PowerTrendPoint]:
         """Site Power Telemetry / Import-Export Power's shared endpoint
-        (docs/GraficasMonitoring.md: "Ambas graficas comparten el mismo
+        (the internal QA note 'GraficasMonitoring': "Ambas graficas comparten el mismo
         powerTrendData -- no hay endpoint separado de Import/Export").
         Confirmed via network capture 2026-09-13: GET
         /api/monitoring/power-trend/{siteId}?timeRange=24h|7d|30d -> a

@@ -89,7 +89,7 @@ omniops-qa/
 ├── conftest.py                     # root fixtures (settings, credentials)
 ├── pytest.ini
 ├── requirements.txt
-├── README.md   ARQUITECTURA.md     # how to run / where everything is
+├── README.md   ARCHITECTURE.md     # how to run / where everything is
 │
 ├── shared/                         # ── COMMON CORE (used by both frameworks)
 │   ├── config/

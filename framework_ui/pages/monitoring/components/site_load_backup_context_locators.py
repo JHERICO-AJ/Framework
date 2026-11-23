@@ -1,5 +1,5 @@
 """Selectors for the Site Load & Backup Context card (Data & Monitoring --
-docs/OF-152.txt): 2 metric blocks (Real Load, Estimated Backup) plus a
+Jira story OF-152): 2 metric blocks (Real Load, Estimated Backup) plus a
 3-row "lateral" block (ATS / grid transfer, Net power, Context) -- always
 live, no 24h/7d/30d applicability (CA-05), same pattern as Thermal
 Diagnostics.

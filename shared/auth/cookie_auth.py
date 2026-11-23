@@ -6,7 +6,8 @@ import os
 import urllib.error
 import urllib.request
 
-from shared.auth.base import Auth, DEFAULT_TIMEOUT_S, request_json
+from shared.auth.base import Auth, DEFAULT_TIMEOUT_S
+from shared.utils.http import request_json
 
 
 class CookieAuth(Auth):

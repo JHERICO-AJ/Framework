@@ -1,5 +1,5 @@
 """Selectors for the Raw Event Bit Viewer card (Data & Monitoring --
-docs/OF-381.txt): evt1/evt2/pcsevt1 compacted bitfield words + a "Decode"
+Jira story OF-381): evt1/evt2/pcsevt1 compacted bitfield words + a "Decode"
 button opening the Event bit decode modal. Always live, no 24h/7d/30d
 applicability (CA-05), same pattern as Thermal Diagnostics/Site Load &
 Backup Context.

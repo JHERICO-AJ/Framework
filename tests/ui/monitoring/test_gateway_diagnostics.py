@@ -38,30 +38,19 @@ def test_communication_status_matches_api(bolivia_monitoring_page, api_summary):
     assert gw.value("Communication Status") == api_summary.gateway_diagnostics.heartbeat_status
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-10, business rule clarified directly by "
-           "the team): docs/OF-146.txt reads as if a missing heartbeat should "
-           "ALWAYS force Disconnected, no matter how fresh the rest of the "
-           "telemetry is (CA-09/CA-29's 'no digas que no bloquea si eso suena "
-           "a Connected'). But the real intended rule -- confirmed directly, "
-           "matching docs/OmniOps_Parameter_Mapping_V03's own EMS Heartbeat "
-           "fallback ('If counter missing, use Last Communication Time "
-           "only') -- is that a Fractal site with no heartbeat but FRESH "
-           "telemetry should still read Connected (or Watch/Disconnected "
-           "per the SAME 2x/5x age thresholds as Data Freshness), not a "
-           "hardcoded Disconnected. Confirmed live via the raw API payload: "
-           "heartBeatStatus='Disconnected' while dataFreshness='Fresh' and "
-           "freshnessSeconds=4.8 (well under the connected threshold) at the "
-           "same instant -- proves this is a backend calculation bug, not a "
-           "UI display issue.")
 def test_communication_status_follows_data_freshness_when_no_heartbeat(bolivia_monitoring_page, api_summary):
-    """CA-09/CA-29 (docs/OF-146.txt) vs. docs/OmniOps_Parameter_Mapping_V03's
-    EMS Heartbeat fallback -- see the xfail reason above for the full
-    conflict and its resolution. BOLIVIA is Fractal (no heartbeat field at
-    all, confirmed against docs/GUIA_CONSUMO_PROTO_FRACTAL.md), so with
-    fresh telemetry it should read "Connected", mirroring Data Freshness's
-    own word via the same age thresholds -- not a hardcoded "Disconnected"."""
+    """CA-09/CA-29 (Jira story OF-146) vs. docs/OmniOps_Parameter_Mapping_V03's
+    EMS Heartbeat fallback. BOLIVIA is Fractal (no heartbeat field at all,
+    confirmed against the internal QA note 'GUIA_CONSUMO_PROTO_FRACTAL'), so with fresh
+    telemetry it should read "Connected", mirroring Data Freshness's own
+    word via the same age thresholds -- not a hardcoded "Disconnected".
+
+    CONFIRMED DEFECT 2026-09-10 (Qase Defect #32, Jira OF-448): heartbeat
+    missing always forced a hardcoded Disconnected regardless of how fresh
+    the telemetry was (confirmed live: heartBeatStatus='Disconnected' while
+    dataFreshness='Fresh' and freshnessSeconds=4.8 at the same instant).
+    FIXED as of 2026-09-21 (re-verified after the JF/FixMonitoring deploy):
+    Communication Status now follows Data Freshness's own word correctly."""
     gw = bolivia_monitoring_page.gateway_diagnostics()
     freshness_word = api_summary.gateway_diagnostics.data_freshness
     expected = {"Fresh": "Connected", "Watch": "Watch", "Stale": "Disconnected"}[freshness_word]
@@ -87,7 +76,7 @@ def test_data_freshness_word_matches_api(bolivia_monitoring_page, monitoring_ser
     exactly; the seconds figure moves every tick.
 
     Retries a few times, re-reading BOTH sides fresh each time: per
-    docs/OF-146.txt, the frontend ages this word using its OWN local clock
+    Jira story OF-146, the frontend ages this word using its OWN local clock
     every 1s from "Last comms" ("Envejecimiento de frescura: Calculo local
     en el navegador cada 1 s"), independent of the backend's own snapshot
     -- so right at a 2x/5x interval threshold boundary, the UI and a

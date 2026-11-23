@@ -8,6 +8,7 @@ from dataclasses import dataclass
 class AlarmRow:
     name: str
     device: str
+    site: str
     severity: str
     status: str
     first: str
@@ -17,4 +18,4 @@ class AlarmRow:
 
     @property
     def key(self):
-        return (self.name, self.device)
+        return (self.name, self.device, self.site)

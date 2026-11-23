@@ -1,5 +1,5 @@
 """SiteLoadBackupContext -- reusable component: Real Load / Estimated
-Backup / ATS-Net power-Context on Data & Monitoring (docs/OF-152.txt)."""
+Backup / ATS-Net power-Context on Data & Monitoring (Jira story OF-152)."""
 from __future__ import annotations
 
 from framework_ui.base.base_component import BaseComponent

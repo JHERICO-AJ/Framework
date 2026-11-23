@@ -1,5 +1,5 @@
 """SitePowerTelemetry -- reusable component: the Trend Focus line chart on
-Data & Monitoring (docs/OF-143.txt, docs/GraficasMonitoring.md)."""
+Data & Monitoring (Jira story OF-143, the internal QA note 'GraficasMonitoring')."""
 from __future__ import annotations
 
 import re
@@ -65,7 +65,7 @@ class SitePowerTelemetry(BaseComponent):
         svg.scroll_into_view_if_needed()
         return svg
 
-    def _hover_tooltip_at(self, x, y):
+    def _hover_tooltip_at(self, x_px, y_px):
         """A tick's own x can land sub-pixel outside Recharts' interactive
         hit area (confirmed live: the exact leftmost tick's x sometimes
         needs a few extra pixels before a tooltip appears) -- nudges
@@ -73,7 +73,7 @@ class SitePowerTelemetry(BaseComponent):
         svg = self._chart_svg()
         tooltip = self.card().locator(loc.TOOLTIP_WRAPPER).first
         for nudge in (0, 2, 4, 6, -2, -4):
-            svg.hover(position={"x": x + nudge, "y": y})
+            svg.hover(position={"x": x_px + nudge, "y": y_px})
             try:
                 tooltip.wait_for(state="visible", timeout=1500)
                 return tooltip.inner_text().strip()

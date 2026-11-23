@@ -10,7 +10,7 @@ from framework_ui.pages.fleet_overview.components import fleet_availability_loca
 
 class FleetAvailability(BaseComponent):
     def wait_past_mount_animation(self, buffer_ms=500):
-        """Confirmed via docs/fleet-availability.md §4.2: on first mount
+        """Confirmed via the internal QA note 'fleet-availability' §4.2: on first mount
         (isInitialLoad) the widget interpolates its displayed percentages
         over an 800ms animation using intermediate Math.round() values that
         do NOT sum to 100 mid-animation -- reading percentages() before

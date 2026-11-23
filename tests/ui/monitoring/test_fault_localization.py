@@ -1,4 +1,4 @@
-"""Data & Monitoring - Fault Localization (docs/OF-153.txt): a site-level,
+"""Data & Monitoring - Fault Localization (Jira story OF-153): a site-level,
 ALWAYS-LIVE (~5s via diagnostics push) 8-row rack/pack/cell extreme-location
 panel, in 3 cards (Highest V / Lowest V / Temperature) -- explicitly NOT
 affected by the page's 24h/7d/30d range selector (CA-05), same pattern as
@@ -31,7 +31,7 @@ the HU's favor -- BuildFaults literally never populates a temp pack/cell
 value for any site, confirming the mapping doc is the stale one here.
 
 CONFIRMED DEFECT (2026-09-13): the HU's own "Formato de etiquetas en
-pantalla" table (docs/OF-153.doc raw HTML, row "Ausente") documents
+pantalla" table (Jira story OF-153 raw HTML, row "Ausente") documents
 Formato=N/A but Ejemplo="—" (a real em-dash character in the source HTML,
 not a conversion artifact -- confirmed by re-grepping the raw .doc). This
 contradicts the CA bullets (CA-22/CA-23, the fallback table) which repeat
@@ -139,7 +139,7 @@ def test_temperature_block_has_no_pack_or_cell_rows(bolivia_monitoring_page):
 
 
 def test_all_rows_are_absent_for_a_fractal_site_with_no_bms_strings(bolivia_monitoring_page, api_client, bolivia_site_id):
-    """Documented Fractal gap (docs/OF-153.txt: "Fractal sin strings BMS
+    """Documented Fractal gap (Jira story OF-153: "Fractal sin strings BMS
     mapeados" -> panel sin dato), confirmed via source (see module
     docstring) rather than assumed. Cross-checked against the real API's
     faultLocalization object -- all 8 location fields must be null.
@@ -182,23 +182,17 @@ def test_backend_still_computes_fault_device_fields_even_though_unrendered(boliv
         pytest.skip("no open alarm right now on BOLIVIA -- nothing for the backend to derive these from")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-13): the correct 'no data' placeholder "
-           "for this panel is a dash ('—') -- per the HU's own format table "
-           "(docs/OF-153.doc raw HTML: row 'Ausente' has Ejemplo='—', a real "
-           "em-dash in the source, not a conversion artifact), per direct "
-           "team-lead confirmation this session, and per the sitewide "
-           "convention already confirmed for ATS/evt1/evt2/Context and every "
-           "other Advanced Diagnostics 'no data' cell in this module. The "
-           "live app renders the literal text 'N/A' instead for all 8 rows "
-           "on BOLIVIA -- inconsistent with the rest of the module. Note the "
-           "HU's own CA-22/CA-23 bullets and its fallback table repeat the "
-           "word 'N/A' verbatim, contradicting the format table's own "
-           "Example column -- an inconsistency inside the HU itself, "
-           "resolved here in favor of the table's Example + the team lead's "
-           "direction + the app's own established convention.")
 def test_absent_rows_show_a_dash_not_the_literal_text_na(bolivia_monitoring_page):
+    """CONFIRMED DEFECT 2026-09-13 (Qase Defect #47): the correct 'no data'
+    placeholder for this panel is a dash ('—') -- per the HU's own format
+    table (Jira story OF-153 raw HTML: row 'Ausente' has Ejemplo='—', a real
+    em-dash in the source, not a conversion artifact), per direct
+    team-lead confirmation, and per the sitewide convention already
+    confirmed for ATS/evt1/evt2/Context and every other Advanced
+    Diagnostics 'no data' cell in this module. The app used to render the
+    literal text 'N/A' instead for all 8 rows on BOLIVIA -- inconsistent
+    with the rest of the module. FIXED as of 2026-09-21 (re-verified after
+    the JF/FixMonitoring deploy)."""
     fault = bolivia_monitoring_page.fault_localization()
     values = fault.all_values()
     assert all(v == NA_EXPECTED for v in values.values()), (

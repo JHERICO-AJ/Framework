@@ -1,6 +1,6 @@
 # Status of the migration to the new architecture
 
-Migrated **layer by layer**, in the order recommended by ARQUITECTURA.md
+Migrated **layer by layer**, in the order recommended by ARCHITECTURE.md
 (section 8), leaving the repo working at every step.
 
 ## ✅ Step 1 — shared/ (DONE and verified)

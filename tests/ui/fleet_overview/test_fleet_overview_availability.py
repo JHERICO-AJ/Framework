@@ -1,6 +1,6 @@
 """Fleet Overview — Fleet Availability card + bar.
 
-Grounded in docs/fleet-availability.md (backend documentation, provided
+Grounded in the internal QA note 'fleet-availability' (backend documentation, provided
 2026-08-31) -- previously this file used approximate/consistency-only
 checks because we didn't have the exact source tables or formulas. Now we
 do, so most cases here assert EXACT values, not loose bounds:
@@ -66,7 +66,7 @@ def test_availability_card_matches_db_formula(require_omniops, fleet_overview_pa
         pytest.skip("no FleetAvailabilitySample rows in the last 24h yet")
     assert card_pct == pytest.approx(expected, abs=0.05), (
         f"UI card {card_pct}% vs DB-formula {expected}% (exact formula, "
-        f"see docs/fleet-availability.md §4.1)")
+        f"see the internal QA note 'fleet-availability' §4.1)")
 
 
 def test_availability_bar_matches_db_formula(require_omniops, fleet_overview_page, db_conn):
@@ -84,7 +84,7 @@ def test_availability_bar_matches_db_formula(require_omniops, fleet_overview_pag
     assert (pct["normal"], pct["with_alarms"], pct["critical_offline"]) == pytest.approx(
         (expected_normal, expected_warning, expected_critical), abs=0.05
     ), (f"UI bar {pct} vs DB-formula (normal={expected_normal}, warning={expected_warning}, "
-        f"critical={expected_critical}) -- see docs/fleet-availability.md §4.2.1")
+        f"critical={expected_critical}) -- see the internal QA note 'fleet-availability' §4.2.1")
 
 
 def test_availability_card_matches_api(require_omniops, fleet_overview_page, api_client):

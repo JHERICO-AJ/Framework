@@ -1,5 +1,5 @@
 """Selectors for the Site Import / Export Power card (Data & Monitoring --
-docs/OF-143.txt CA-22, docs/GraficasMonitoring.md): a Recharts line chart
+Jira story OF-143 CA-22, the internal QA note 'GraficasMonitoring'): a Recharts line chart
 with NO Trend Focus selector -- always just Import (MW) + Export (MW),
 domain clamped to [0, auto] on the client. Shares the same power-trend data
 as Site Power Telemetry's Meter / CT-PT focus (confirmed live 2026-09-14).

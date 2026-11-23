@@ -29,7 +29,8 @@ from __future__ import annotations
 import sys
 
 from shared.domain import alarm_catalog as cat
-from shared.datasource.modbus_source import signed16, ModbusReader, FakeModbusReader
+from shared.datasource.fake_modbus_reader import FakeModbusReader
+from shared.datasource.modbus_source import signed16, ModbusReader
 
 _OPERATORS = {
     ">":  lambda v, l: v > l,

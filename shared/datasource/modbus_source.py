@@ -10,7 +10,7 @@ Contains:
   signed16 / w_to_kw       -> conversions of raw values
   read_sim_total_kw()      -> sum of the power of the 3 PCS (calc layer)
   ModbusReader             -> reads individual registers (for the alarm oracle)
-  FakeModbusReader         -> fake reader for offline tests
+  FakeModbusReader         -> see shared/datasource/fake_modbus_reader.py
 
 READ ONLY. pymodbus is only imported when connecting (so the logic can be
 tested without having it installed).
@@ -141,26 +141,12 @@ class ModbusReader:
             pass
 
 
-class FakeModbusReader:
-    """For tests: a dict {address: raw_16bit_value}."""
-
-    def __init__(self, registers):
-        self._r = dict(registers)
-
-    def read_register(self, addr):
-        if addr not in self._r:
-            raise IOError(f"register {addr} is not in the fake reader")
-        return self._r[addr]
-
-    def close(self):
-        pass
-
-
 # ---------------------------------------------------------------------------
 SAMPLE_SIM = [(17014, 14218, 2), (17114, 14176, 2), (17214, 7100, 2)]
 
 
 def _self_check():
+    from shared.datasource.fake_modbus_reader import FakeModbusReader
     print("(modbus_source test — conversion + fake reader, no network)\n")
     details = [(a, w_to_kw(raw, sf)) for a, raw, sf in SAMPLE_SIM]
     total = sum(kw for _, kw in details)

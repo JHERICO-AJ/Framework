@@ -9,8 +9,8 @@ from framework_ui.pages.alarms_events.components.alarm_row import AlarmRow
 
 
 class AlarmsTable(BaseComponent):
-    def _parse_row(self, tr):
-        cells = tr.locator("td")
+    def _parse_row(self, table_row):
+        cells = table_row.locator("td")
 
         def txt(locator):
             try:
@@ -21,6 +21,7 @@ class AlarmsTable(BaseComponent):
         return AlarmRow(
             name=txt(cells.nth(0).locator(loc.CELL_NAME)),
             device=txt(cells.nth(0).locator(loc.CELL_SUBTEXT)),
+            site=txt(cells.nth(1)),
             severity=txt(cells.nth(2)),
             status=txt(cells.nth(3)),
             first=txt(cells.nth(5)),

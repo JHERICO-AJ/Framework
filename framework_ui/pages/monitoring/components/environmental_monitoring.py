@@ -1,5 +1,5 @@
 """EnvironmentalMonitoring -- reusable component: the Ambient Temp/Humidity
-card on Data & Monitoring (docs/OF-151.txt)."""
+card on Data & Monitoring (Jira story OF-151)."""
 from __future__ import annotations
 
 from framework_ui.base.base_component import BaseComponent

@@ -1,18 +1,20 @@
 """Fleet Overview — Fleet Alarms Analytics, the 2 ECharts CANVAS charts
 ("Alarms in last 24h · by hour" and "Alarm distribution · by system").
 
-These render on an HTML5 <canvas> -- there's no DOM/text content for
-Playwright (or any DOM-based tool) to read; a canvas is pixels, not
-markup. That's a real, permanent limitation, not something worth chasing
-further (see docs/CLAUDE_CODE_CONTEXT.md §6). What we CAN and DO verify:
-the DATA feeding the drawing is correct, via the same 2 endpoints the
-frontend calls (confirmed via network capture 2026-08-31):
+These render on an HTML5 <canvas> -- there's no DOM/text content to read
+directly, but hovering a data point opens ECharts' own tooltip, which IS
+plain HTML (see FleetAlarmsAnalytics.scan_hourly_chart/_parse_bar_tooltip)
+-- so the REAL rendered label/values ARE readable, just not by scraping
+the canvas itself. Most tests here still verify the DATA feeding the
+drawing via the same 2 endpoints the frontend calls (confirmed via network
+capture 2026-08-31):
   GET /api/events/analytics/hourly-distribution?hours=N
   GET /api/events/analytics/subsystem-distribution?hours=N
-This doesn't prove the pixels are drawn correctly, but it proves the chart
-isn't lying about the underlying numbers -- which is the part an operator
-actually relies on.
-"""
+That proves the chart isn't lying about the underlying numbers, but
+confirmed 2026-09-16 it is NOT a substitute for reading the real tooltip
+when checking something the FRONTEND itself computes independently of the
+API field (see the hour/day-label tests below, where checking only the
+API's 'hour' field produced a false result for the 24h case)."""
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -21,6 +23,7 @@ import pytest
 from framework_api.services.events_service import EventsService
 from shared.datasource.db_source import (
     get_all_site_ids, count_alarms_by_subsystem_windowed, count_critical_alarms_windowed,
+    count_critical_alarms_by_local_day,
 )
 
 pytestmark = pytest.mark.ui
@@ -106,80 +109,104 @@ def test_hourly_distribution_has_24_buckets(require_omniops, api_client):
     assert len(rows) == 24, f"expected 24 hourly buckets, got {len(rows)}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-11). NOTE: already reported "
-           "independently by a teammate with her own test -- filed in Qase "
-           "(case + defect + Test Run result) and in Jira. Kept here as our "
-           "own suite's regression coverage, but do NOT re-file this one in "
-           "Qase/Jira -- it would be a duplicate. Every platform screen with a "
-           "time component (Event Log, Alarm History, Site Power Telemetry, "
-           "Telemetry Data Table) has already been confirmed to render in "
-           "the browser's LOCAL time, not raw UTC. This chart doesn't: "
-           "GET /api/events/analytics/hourly-distribution's own 'hour' "
-           "label (e.g. '16 h') matches its 'timestamp' field's raw UTC "
-           "hour-of-day verbatim (timestamp '2026-09-10T16:00:00Z' -> hour "
-           "'16 h') -- for a browser in America/La_Paz (UTC-4, confirmed "
-           "live via getTimezoneOffset()=240), the correct local label for "
-           "that same instant would be '12 h', not '16 h'. The frontend "
-           "displays this 'hour' field as-is, so every bar in 'Alarms in "
-           "last 24h - by hour' is mislabeled by the site's UTC offset.")
-def test_hourly_distribution_hour_label_is_local_not_utc(require_omniops, api_client, logged_in_page):
+def test_hourly_distribution_hour_label_is_local_not_utc(require_omniops, api_client, fleet_overview_page):
+    """REVISED 2026-09-16 (twice). First revision: compared GET
+    .../hourly-distribution's own 'hour' field, called WITHOUT the
+    'ClientTimeZone' query param, against the local hour -- found a
+    mismatch and filed it as a confirmed defect. RETRACTED: confirmed via
+    network capture that the REAL frontend ALWAYS sends 'ClientTimeZone'
+    (e.g. 'America/La_Paz'), and the BACKEND uses it to shift bucket
+    boundaries to LOCAL time and build already-correct labels --
+    EventsService.get_hourly_distribution() now sends this by default
+    (settings.CLIENT_TIMEZONE). Calling the endpoint without it, as this
+    test used to unconditionally, is a genuinely different, timezone-blind
+    request that the real UI never makes -- not a valid way to test what
+    the UI shows. With the correct request, the API's own 'hour' field
+    already matches the REAL rendered tooltip exactly, confirmed
+    positionally (bar N left-to-right = API row N, both chronological)."""
     rows = EventsService(api_client).get_hourly_distribution(hours=24)
     assert rows, "expected at least 1 hourly bucket"
 
-    offset_min = logged_in_page.evaluate("() => new Date().getTimezoneOffset()")
+    rendered_bars = fleet_overview_page.alarms_analytics().scan_bars_in_order(steps=100)
+    assert rendered_bars, "no bars found via the tooltip sweep"
 
+    n = min(len(rendered_bars), len(rows))
     mismatches = []
-    for row in rows:
-        utc_dt = datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00")).astimezone(timezone.utc)
-        expected_local_hour = (utc_dt.hour - offset_min // 60) % 24
-        match = re.match(r"(\d{1,2})\s*h", row["hour"])
-        assert match, f"unrecognized hour-bucket label format: {row['hour']!r}"
-        actual_hour = int(match.group(1))
-        if actual_hour != expected_local_hour:
-            mismatches.append((row["timestamp"], row["hour"], expected_local_hour))
+    for i in range(n):
+        row = rows[i]
+        rendered_label, _values = rendered_bars[i]
+        if rendered_label != row["hour"]:
+            mismatches.append((row["timestamp"], row["hour"], rendered_label))
 
     assert not mismatches, (
-        f"expected each bucket's 'hour' label to reflect the LOCAL hour for "
-        f"its UTC timestamp (offset {offset_min} min), found buckets still "
-        f"labeled in raw UTC: {mismatches[:5]}")
+        f"expected each bar's rendered hour label (matched positionally, left-to-"
+        f"right, against the API's chronologically-ordered rows) to match the API's "
+        f"own (already-localized) 'hour' field; mismatches (timestamp, api_hour, "
+        f"rendered): {mismatches}")
 
 
-@pytest.mark.parametrize("hours, range_label", [(168, "7d"), (720, "30d")])
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-15, Qase Defects #37/#38 -- same root "
-           "cause as #36/test_hourly_distribution_hour_label_is_local_not_utc "
-           "above, a 7d/30d occurrence of it): for the wide-window ranges, "
-           "GET /api/events/analytics/hourly-distribution's 'hour' field is a "
-           "DAY label (e.g. '09 Sep') instead of an hour label, one bucket "
-           "per UTC calendar day at timestamp T00:00:00Z. The frontend "
-           "displays this label as-is, verbatim in UTC, instead of "
-           "converting to the browser's local day -- confirmed live "
-           "(offset=240 min, America/La_Paz): every single bucket's label is "
-           "exactly 1 day AHEAD of the correct local calendar day (e.g. "
-           "timestamp 2026-09-09T00:00:00Z, labeled '09 Sep', but that "
-           "instant is still '08 Sep' 20:00 in the browser's local time).")
-def test_hourly_distribution_day_label_is_local_not_utc(require_omniops, api_client, logged_in_page, hours, range_label):
+@pytest.mark.parametrize("hours, range_label, range_ui_label", [(168, "7d", "Last 7 days"), (720, "30d", "Last 30 days")])
+def test_hourly_distribution_day_label_is_local_not_utc(
+        require_omniops, api_client, db_conn, all_site_ids, fleet_overview_page, hours, range_label, range_ui_label):
     """[Fleet Overview scalability] Same check as the 24h hour-label test
     above, extended to the 7d/30d "day label" format -- one parametrized
     test instead of duplicating the whole body per range, per
-    docs/PR_CORRECTIONS.md's spirit of small, reusable, DRY test code."""
-    rows = EventsService(api_client).get_hourly_distribution(hours=hours)
-    assert rows, f"[{range_label}] expected at least 1 daily bucket"
+    docs/PR_CORRECTIONS.md's spirit of small, reusable, DRY test code.
 
-    offset_min = logged_in_page.evaluate("() => new Date().getTimezoneOffset()")
+    RETRACTED 2026-09-16 (the DEFECT was Qase #37/#38, deleted -- a false
+    positive, same lesson as the 24h test above; the CASES themselves,
+    #732/#733, were kept/recreated as permanent regression coverage since
+    the scenario is legitimate, only the tooling was wrong): the earlier
+    version called the API WITHOUT the 'ClientTimeZone' query param and
+    compared its 'hour' field/bucket timestamps (all at UTC midnight)
+    against locally-shifted expectations. Confirmed via network capture
+    that the real frontend always sends 'ClientTimeZone', and the backend
+    uses it to shift bucket BOUNDARIES to LOCAL midnight (not just the
+    label) -- EventsService.get_hourly_distribution() now sends this by
+    default. With the correct request, 3 independent layers agree: DB
+    direct query (count_critical_alarms_by_local_day, bucketed by LOCAL
+    calendar day) == API's per-day Critical counts == the REAL rendered
+    tooltip, matched positionally (bar N left-to-right = API row N, both
+    chronologically ordered, covering every bucket including all-zero
+    ones)."""
+    db_day_counts = count_critical_alarms_by_local_day(db_conn, all_site_ids, hours=hours)
 
-    mismatches = []
-    for row in rows:
-        utc_dt = datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00")).astimezone(timezone.utc)
-        local_dt = utc_dt - timedelta(minutes=offset_min)
-        expected_label = f"{local_dt.day:02d} {local_dt.strftime('%b')}"
-        if row["hour"] != expected_label:
-            mismatches.append((row["timestamp"], row["hour"], expected_label))
+    fleet_overview_page.select_time_range(range_ui_label)
+    try:
+        fleet_overview_page.page.wait_for_timeout(1000)
+        rows = EventsService(api_client).get_hourly_distribution(hours=hours)
+        assert rows, f"[{range_label}] expected at least 1 daily bucket"
 
-    assert not mismatches, (
-        f"[{range_label}] expected each bucket's day label to reflect the LOCAL "
-        f"calendar day for its UTC timestamp (offset {offset_min} min), found "
-        f"buckets still labeled in raw UTC: {mismatches[:5]}")
+        # Layer 1 (DB direct, local-day bucketed) vs Layer 2 (API).
+        db_vs_api_mismatches = []
+        for row in rows:
+            utc_dt = datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00")).astimezone(timezone.utc)
+            local_dt = utc_dt - timedelta(minutes=240)  # America/La_Paz, UTC-4
+            day_key = local_dt.strftime("%Y-%m-%d")
+            db_count = db_day_counts.get(day_key, 0)
+            if db_count != row.get("critical", 0):
+                db_vs_api_mismatches.append((row["timestamp"], db_count, row.get("critical")))
+        assert not db_vs_api_mismatches, (
+            f"[{range_label}] DB (direct query, local-day bucketed) vs API per-day "
+            f"Critical counts disagree (timestamp, db_count, api_count): "
+            f"{db_vs_api_mismatches}")
+
+        # Layer 2 (API) vs Layer 3 (the REAL rendered tooltip).
+        rendered_bars = fleet_overview_page.alarms_analytics().scan_bars_in_order(steps=300)
+        assert rendered_bars, f"[{range_label}] no bars found via the tooltip sweep"
+
+        n = min(len(rendered_bars), len(rows))
+        mismatches = []
+        for i in range(n):
+            row = rows[i]
+            rendered_label, _values = rendered_bars[i]
+            if rendered_label != row["hour"]:
+                mismatches.append((row["timestamp"], row["hour"], rendered_label))
+
+        assert not mismatches, (
+            f"[{range_label}] expected each bar's rendered day label (matched "
+            f"positionally, left-to-right, against the API's chronologically-"
+            f"ordered rows) to match the API's own (already-localized) 'hour' "
+            f"field; mismatches (timestamp, api_hour, rendered): {mismatches}")
+    finally:
+        fleet_overview_page.select_time_range("Last 24 hours")

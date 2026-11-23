@@ -1,4 +1,4 @@
-"""Selectors for the Event Log card (Data & Monitoring -- docs/OF-293.txt):
+"""Selectors for the Event Log card (Data & Monitoring -- Jira story OF-293):
 a live table (Time/Type/Source/Description) plus a "Browse history" modal.
 
 Confirmed against the real deployed app (2026-09-10). `.card` is reused

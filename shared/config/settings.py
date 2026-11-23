@@ -71,6 +71,17 @@ FRACTAL_SITE_MODBUS = {
     "BOLIVIA 5": (5025, 12),
 }
 
+# --- Fractal alarm injection proxy (shared/domain/fractal_register_injection.py
+# + tools/fractal_sim_proxy.py) -------------------------------------------
+# Same pattern as the EPC proxy above, per site: the proxy claims the port
+# in FRACTAL_SITE_MODBUS (the one edge/OmniOps already expects for that
+# site), and forwards to the REAL simulator, which the user launches on a
+# DIFFERENT port (passed explicitly with --real-port when starting
+# tools/fractal_sim_proxy.py) -- e.g. real simulator moved to 6024, proxy
+# claims 5024 in its place. One override-state JSON file per site (site
+# name -> BOLIVIA/BOLIVIA_1/etc, spaces replaced with '_').
+FRACTAL_INJECT_STATE_DIR = os.path.join(ROOT, "fractal_inject_state")
+
 # --- DB (read-only cross-layer checks) ---------------------------------------
 # All None if unset -- tests/conftest.py's db_conn fixture SKIPS (not fails)
 # when any of these is missing, same pattern as require_omniops.
@@ -79,6 +90,23 @@ DB_PORT = os.environ.get("DB_PORT", "5432")
 DB_NAME = os.environ.get("DB_NAME")
 DB_USER = os.environ.get("DB_USER")
 DB_PASSWORD = os.environ.get("DB_PASSWORD")
+
+# --- Quotation DB (read-only cross-layer checks, MySQL) ---------------------
+# All None if unset -- tests/conftest.py's quotation_db_conn fixture SKIPS
+# (not fails) when any of these is missing, same pattern as db_conn above.
+QUOTATION_DB_HOST = os.environ.get("QUOTATION_DB_HOST")
+QUOTATION_DB_PORT = os.environ.get("QUOTATION_DB_PORT", "3306")
+QUOTATION_DB_NAME = os.environ.get("QUOTATION_DB_NAME")
+QUOTATION_DB_USER = os.environ.get("QUOTATION_DB_USER")
+QUOTATION_DB_PASSWORD = os.environ.get("QUOTATION_DB_PASSWORD")
+
+# --- Quotation OEM tests ------------------------------------------------------
+# The OEM is an external contact that decides from the link of an email. Every quotation that reaches its turn sends one REAL email to this
+# address, so it must be the QA test mailbox and never a real OEM (the QoS document warns that only the QA environment exists).
+OEM_TEST_EMAIL = os.environ.get("OEM_TEST_EMAIL", "")   # required for the OEM tests: set it in .env
+OEM_TEST_NAME = os.environ.get("OEM_TEST_NAME", "QA Test OEM")
+# Address the OmniOps notification emails are sent from (required by the notification tests).
+NOTIFICATION_SENDER_EMAIL = os.environ.get("NOTIFICATION_SENDER_EMAIL", "").lower()
 
 # --- Launcher (bring up sim + proxy + edge in order) ------------------------
 # Path to the simulator/edge repo (omniops-bess-edge). By default it looks for it
@@ -99,6 +127,16 @@ EDGE_PYTHON = os.environ.get("EDGE_PYTHON", "")
 # --- Tolerances for the CALC layer (sim vs API) -----------------------------
 TOL_ABS_KW = 50.0
 TOL_REL = 0.02
+
+# Confirmed via network capture 2026-09-16: the real frontend always sends
+# this as the 'ClientTimeZone' query param on analytics endpoints (e.g.
+# GET /api/events/analytics/hourly-distribution) -- the BACKEND uses it to
+# convert UTC timestamps to local bucket boundaries/labels. Every browser in
+# this project's test environment is in America/La_Paz (UTC-4, confirmed
+# live via getTimezoneOffset()=240) -- calling one of these endpoints
+# without this parameter is a genuinely different request than what the
+# real UI ever sends, not an equivalent shortcut.
+CLIENT_TIMEZONE = "America/La_Paz"
 
 # --- Live monitoring (timings) ----------------------------------------------
 OMNIOPS_EVERY_S = 6     # how often we ask OmniOps. Lower = more responsive but
@@ -138,4 +176,5 @@ TRACES_DIR = "reports/traces"
 
 # Alternative command (used by tools/sim_launcher.py, which brings up sim+edge
 # together via launch_site.py). For injection use the launcher (tools/start_alarms_stack).
-SIM_LAUNCH_CMD = ["py", r".\utils\launch_site.py", "{site}", "{port}", "{tick}"]
+SIM_LAUNCH_SCRIPT = os.environ.get("SIM_LAUNCH_SCRIPT", os.path.join("utils", "launch_site.py"))   # relative to SIM_REPO_DIR
+SIM_LAUNCH_CMD = ["py", SIM_LAUNCH_SCRIPT, "{site}", "{port}", "{tick}"]

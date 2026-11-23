@@ -1,14 +1,14 @@
-"""Data & Monitoring - Dispatch Limits & Tracking (docs/OF-145.txt) -- a
+"""Data & Monitoring - Dispatch Limits & Tracking (Jira story OF-145) -- a
 6-block dispatch/setpoint/DC-bus summary next to Battery Diagnostics and
 Gateway Diagnostics.
 
 BOLIVIA (Fractal) specifically. CA-04 (visibility depends on a global
 "All Telemetry" vs "Site Summary Only" view toggle) is not covered here:
 confirmed live 2026-09-10 the app has no such view selector today (matches
-docs/OF-145.txt's own note, "hoy no hay selector de esa vista") -- same
+Jira story OF-145's own note, "hoy no hay selector de esa vista") -- same
 untestable-CA pattern already confirmed for Battery Diagnostics.
 
-No DB cross-layer check for this module: docs/OF-145.txt's own "Origen de
+No DB cross-layer check for this module: Jira story OF-145's own "Origen de
 los datos" section says "Historial en base de datos: No alimenta esta
 tarjeta directamente" -- same in-memory-cache pattern already confirmed
 for Battery Diagnostics.
@@ -22,9 +22,9 @@ site state the UI reads, one hop earlier. Modeled as
 DispatchDiagnostics in framework_api/models/monitoring_summary.py.
 
 Real, deep ground truth IS available for "Actual PCS Power" specifically:
-docs/OF-145.txt's own Calculo rule ("suma de todos los inversores
+Jira story OF-145's own Calculo rule ("suma de todos los inversores
 individuales del sitio") is identical to Device Status Panel's PCS/Inverter
-"Actual" rule (docs/OF-140.txt), and read_fractal_site_total_kw
+"Actual" rule (Jira story OF-140), and read_fractal_site_total_kw
 (shared/datasource/fractal_modbus_source.py) already implements exactly
 that sum -- reused here via the same convergence-window technique as
 test_pcs_actual_power_matches_simulator_pcs_sum
@@ -35,13 +35,13 @@ during initial exploration -- a ~764 kW single-snapshot gap that this
 window technique is what actually resolves, one way or another).
 
 DC Bus Voltage/Current (dc_voltage_v/dc_current_a, EmuStatus fields 17/18
-per docs/GUIA_CONSUMO_PROTO_FRACTAL.md) DO have real ground-truth checks
+per the internal QA note 'GUIA_CONSUMO_PROTO_FRACTAL') DO have real ground-truth checks
 below: their Modbus register offsets (33 and 35 off EMU_BASE, confirmed
 2026-09-10 directly against omniops-bess-edge's real
 modbus_common/fractal_addressing_map.py EMU_FIELDS -- not guessed) are now
 implemented as read_fractal_emu_dc_current_a/read_fractal_emu_dc_voltage_v
 in shared/datasource/fractal_modbus_source.py. Both correspond to
-docs/OF-145.txt's Calculo preference order #1 for these two blocks
+Jira story OF-145's Calculo preference order #1 for these two blocks
 ("Voltaje y corriente del banco/sitio, mensaje del gateway") -- the
 EMU-level site aggregate this simulator reads directly.
 """
@@ -126,7 +126,7 @@ def _wait_for_value_to_match_simulator(label, read_layer_value, unit_suffix, rea
         raw = read_layer_value()
         assert raw not in (None, "N/A", EM_DASH), (
             f"expected a real numeric value for {label!r} on a Fractal site "
-            f"(docs/OF-145.txt: Fractal DOES feed this block), got: {raw!r}")
+            f"(Jira story OF-145: Fractal DOES feed this block), got: {raw!r}")
         layer_value = float(raw.replace(unit_suffix, "").strip()) if isinstance(raw, str) else float(raw)
 
         match = next((t for t, v in history if abs(v - layer_value) <= tolerance), None)
@@ -152,7 +152,7 @@ def _wait_for_value_to_match_simulator(label, read_layer_value, unit_suffix, rea
 
 
 def test_exactly_six_blocks_with_documented_labels(bolivia_monitoring_page):
-    """CA-03 (docs/OF-145.txt): exactly 6 blocks, in this exact order."""
+    """CA-03 (Jira story OF-145): exactly 6 blocks, in this exact order."""
     card = bolivia_monitoring_page.dispatch_limits_tracking()
     labels = list(card.block_values().keys())
     assert labels == EXPECTED_BLOCK_LABELS, (
@@ -168,7 +168,7 @@ def test_exactly_six_blocks_with_documented_labels(bolivia_monitoring_page):
     ("DC Bus Current", r"^-?\d+\.\d A$"),
 ])
 def test_numeric_block_format_or_documented_fallback(bolivia_monitoring_page, label, pattern):
-    """CA-05 through CA-11 (docs/OF-145.txt): each block's value must be
+    """CA-05 through CA-11 (Jira story OF-145): each block's value must be
     EITHER a real value in its documented 1-decimal unit format OR one of
     the two documented fallback placeholders (N/A -- literal spec text --
     or the dash, per the team lead's confirmed design standard for a field
@@ -190,8 +190,8 @@ def test_numeric_block_format_or_documented_fallback(bolivia_monitoring_page, la
 # already-open defect (test_structurally_absent_field_shows_dash_not_na in
 # test_device_status_panel.py): Charge Limit, Discharge Limit and PCS
 # Setpoint structurally never arrive for a Fractal site (ccl_a/dcl_a/no
-# setpoint-equivalent field anywhere in docs/GUIA_CONSUMO_PROTO_FRACTAL.md
-# or docs/PlanFractal_RM.md's real field-mapping tables), so per the lead's
+# setpoint-equivalent field anywhere in the internal QA note 'GUIA_CONSUMO_PROTO_FRACTAL'
+# or the internal QA note 'PlanFractal_RM''s real field-mapping tables), so per the lead's
 # standard they should show "-", not "N/A" -- same bug, new card.
 # ---------------------------------------------------------------------------
 
@@ -200,17 +200,14 @@ FIELDS_THAT_NEVER_ARRIVE_BUT_CURRENTLY_SHOW_NA = [
 ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Design standard confirmed by the team lead: a field that "
-           "structurally never arrives for a manufacturer must show '-', "
-           "not 'N/A'. Same confirmed root cause as Device Status Panel's "
-           "PCS Setpoint / Charge-Discharge limit defect (ccl_a/dcl_a/"
-           "setpoint absent from Fractal's wire protocol) -- these 3 "
-           "blocks on Dispatch Limits & Tracking read the same underlying "
-           "site state and are expected to still show 'N/A'.")
 @pytest.mark.parametrize("label", FIELDS_THAT_NEVER_ARRIVE_BUT_CURRENTLY_SHOW_NA)
 def test_structurally_absent_field_shows_dash_not_na(bolivia_monitoring_page, label):
+    """CONFIRMED DEFECT 2026-09-XX (Qase Defect #31, Jira OF-447): same
+    root cause as Device Status Panel's PCS Setpoint / Charge-Discharge
+    limit defect (Qase #16) -- ccl_a/dcl_a/setpoint absent from Fractal's
+    wire protocol, these 3 blocks read the same underlying site state.
+    FIXED as of 2026-09-21 (re-verified after the JF/FixMonitoring
+    deploy)."""
     card = bolivia_monitoring_page.dispatch_limits_tracking()
     value = card.value_for(label)
     assert value != "N/A", (
@@ -220,9 +217,9 @@ def test_structurally_absent_field_shows_dash_not_na(bolivia_monitoring_page, la
 
 def test_actual_pcs_power_matches_simulator_pcs_sum(bolivia_monitoring_page):
     """True cross-layer ground truth, bypassing the API entirely: per
-    docs/OF-145.txt's Calculo rule for Actual PCS Power -- "Suma de todos
+    Jira story OF-145's Calculo rule for Actual PCS Power -- "Suma de todos
     los inversores individuales del sitio" -- identical to Device Status
-    Panel's own PCS/Inverter "Actual" rule (docs/OF-140.txt), and CA-16
+    Panel's own PCS/Inverter "Actual" rule (Jira story OF-140), and CA-16
     ("Setpoint, potencia real y limites deben ser coherentes con la
     tarjeta PCS del Device Status Panel -- misma fuente") confirms both
     cards are expected to read the exact same underlying value.
@@ -243,7 +240,7 @@ def test_actual_pcs_power_matches_simulator_pcs_sum(bolivia_monitoring_page):
 
 
 def test_dc_bus_current_matches_simulator(bolivia_monitoring_page):
-    """True cross-layer ground truth: docs/OF-145.txt's Calculo rule for DC
+    """True cross-layer ground truth: Jira story OF-145's Calculo rule for DC
     Bus Current, preference order #1, is "Corriente del banco/sitio
     (mensaje del gateway)" -- exactly EmuStatus.dc_current_a, read here via
     read_fractal_emu_dc_current_a (offset 33 off EMU_BASE, confirmed
@@ -258,7 +255,7 @@ def test_dc_bus_current_matches_simulator(bolivia_monitoring_page):
 
 
 def test_dc_bus_voltage_matches_simulator(bolivia_monitoring_page):
-    """True cross-layer ground truth: docs/OF-145.txt's Calculo rule for DC
+    """True cross-layer ground truth: Jira story OF-145's Calculo rule for DC
     Bus Voltage, preference order #1, is "Voltaje del banco/sitio (mensaje
     del gateway)" -- exactly EmuStatus.dc_voltage_v, read here via
     read_fractal_emu_dc_voltage_v (offset 35 off EMU_BASE, UINT32, confirmed
@@ -341,13 +338,13 @@ def test_ui_matches_api(bolivia_monitoring_page, api_dispatch, label, unit_suffi
 
 
 def test_consistent_with_device_status_panel_pcs_card(bolivia_monitoring_page):
-    """CA-16 (docs/OF-145.txt): 'Setpoint, potencia real y limites deben
+    """CA-16 (Jira story OF-145): 'Setpoint, potencia real y limites deben
     ser coherentes con la tarjeta PCS del Device Status Panel (misma
     fuente)' -- both cards read the same live site state, so Actual PCS
     Power must agree between them. PCS Setpoint/limits are excluded from
     this direct-equality check: Device Status Panel's PCS/Inverter card
     renders them with its own Available/Limited/Unavailable framing
-    (docs/OF-145.txt "Diferencias con otras pantallas"), not the same
+    (Jira story OF-145 "Diferencias con otras pantallas"), not the same
     plain N/A-or-value text this card uses, so a literal string compare
     would conflate a real formatting difference with an actual data
     disagreement."""
@@ -375,13 +372,13 @@ def test_consistent_with_device_status_panel_pcs_card(bolivia_monitoring_page):
 
 
 def test_live_update_reflects_within_documented_window(bolivia_monitoring_page):
-    """CA-12/13 (docs/OF-145.txt): 'Se actualiza en vivo (~5 s) con el
+    """CA-12/13 (Jira story OF-145): 'Se actualiza en vivo (~5 s) con el
     resto de diagnosticos, sin recargar' and 'Si un valor ya se vio y
     llega vacio -> se mantiene el ultimo bueno (no parpadea a N/A)'.
 
     Same technique already established for Battery Diagnostics: for a
     live-changing value (Actual PCS Power on a Fractal site always has
-    one, per docs/OF-145.txt's own Fractal mapping table), confirm a
+    one, per Jira story OF-145's own Fractal mapping table), confirm a
     change lands within the documented window. For any block still stuck
     on a fallback placeholder, confirm CA-13's "sticky, no flicker"
     behavior instead -- both are real, currently-verifiable outcomes, not

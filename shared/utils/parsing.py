@@ -39,7 +39,7 @@ def parse_value_and_source(text):
     """'25.0°C (On-site)' -> (25.0, "On-site"); '50% (API)' -> (50.0, "API");
     '—' (no numeric value at all) -> (None, None). Generic across any
     metric that pairs a numeric reading with a trailing "(Source)" flag --
-    used by Environmental Monitoring's Ambient Temp/Humidity (docs/OF-151.txt),
+    used by Environmental Monitoring's Ambient Temp/Humidity (Jira story OF-151),
     and reusable anywhere else the same "(On-site)"/"(API)" convention shows up."""
     if not text:
         return None, None
@@ -59,3 +59,14 @@ def extreme_raw_value(dir_, type_):
     if type_ == "uint16":
         return 0
     return (-30000) & 0xFFFF        # very negative int16, in 16 bits
+
+
+def parse_iso_datetime(iso_text):
+    if not iso_text:
+        return None
+    try:
+        iso_text = iso_text.replace("Z", "+00:00")
+        iso_text = re.sub(r"(\.\d{6})\d+", r"\1", iso_text)
+        return datetime.datetime.fromisoformat(iso_text)
+    except Exception:
+        return None

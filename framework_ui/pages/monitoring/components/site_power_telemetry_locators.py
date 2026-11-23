@@ -1,5 +1,5 @@
 """Selectors for the Site Power Telemetry chart (Data & Monitoring --
-docs/OF-143.txt, docs/GraficasMonitoring.md): a Recharts line chart with a
+Jira story OF-143, the internal QA note 'GraficasMonitoring'): a Recharts line chart with a
 Trend Focus selector (Battery/BMS, PCS Power, Container & Rack, HVAC &
 Aux, EMS & Network, Meter/CT-PT), Site SOC always on the left axis, and a
 right axis that changes series depending on the selected focus.

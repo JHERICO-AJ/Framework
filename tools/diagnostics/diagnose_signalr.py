@@ -1,11 +1,11 @@
 """
-diagnostico_signalr.py — does the on-screen number update by itself (SignalR)?
+diagnose_signalr.py — does the on-screen number update by itself (SignalR)?
 
 Opens the dashboard with Playwright, and for ~20s reads the value WITHOUT
 reloading, to see if it changes on its own (a sign that SignalR is updating
 live).
 
-Run:  python diagnostico_signalr.py
+Run:  python diagnose_signalr.py
 """
 
 import time

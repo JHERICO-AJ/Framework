@@ -1,6 +1,6 @@
 # Context for Claude Code — Fleet Overview automation (OmniOps, Fractal)
 
-> Paste this file into the `fleet-overview` branch (e.g. `docs/FLEET_OVERVIEW_CONTEXT.md`)
+> Paste this file into the `fleet-overview` branch (e.g. `the internal QA note 'FLEET_OVERVIEW_CONTEXT'`)
 > and point Claude Code at it. It explains WHAT to build, HOW it must fit the existing
 > framework, and the CONSTRAINTS. Read it fully before writing code.
 

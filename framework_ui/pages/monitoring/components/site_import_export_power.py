@@ -1,5 +1,5 @@
 """SiteImportExportPower -- reusable component: the Import/Export line
-chart on Data & Monitoring (docs/OF-143.txt CA-22, docs/GraficasMonitoring.md).
+chart on Data & Monitoring (Jira story OF-143 CA-22, the internal QA note 'GraficasMonitoring').
 No Trend Focus selector -- always plots Import (MW) + Export (MW), sharing
 the same power-trend data as Site Power Telemetry's Meter / CT-PT focus."""
 from __future__ import annotations
@@ -33,14 +33,14 @@ class SiteImportExportPower(BaseComponent):
         svg.scroll_into_view_if_needed()
         return svg
 
-    def _hover_tooltip_at(self, x, y):
+    def _hover_tooltip_at(self, x_px, y_px):
         """Same nudge-retry pattern already confirmed for
         SitePowerTelemetry._hover_tooltip_at -- a tick's own x can land
         sub-pixel outside Recharts' interactive hit area."""
         svg = self._chart_svg()
         tooltip = self.card().locator(loc.TOOLTIP_WRAPPER).first
         for nudge in (0, 2, 4, 6, -2, -4):
-            svg.hover(position={"x": x + nudge, "y": y})
+            svg.hover(position={"x": x_px + nudge, "y": y_px})
             try:
                 tooltip.wait_for(state="visible", timeout=1500)
                 return tooltip.inner_text().strip()

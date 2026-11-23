@@ -1,4 +1,4 @@
-"""Data & Monitoring - Telemetry Data Table (docs/OF-141.txt) -- the raw
+"""Data & Monitoring - Telemetry Data Table (Jira story OF-141) -- the raw
 telemetry list next to the Device Status Panel.
 
 BOLIVIA (Fractal) specifically. Confirmed 2026-09-09: after switching site,
@@ -25,7 +25,7 @@ pytestmark = pytest.mark.ui
 
 SITE_NAME = "BOLIVIA"
 
-# docs/OF-141.txt "Mapeo Fractal -> lecturas de tabla" (lines 247-317) +
+# Jira story OF-141 "Mapeo Fractal -> lecturas de tabla" (lines 247-317) +
 # "Gaps Fractal" (line 317): only these 3 subsystems ever produce a row for
 # a Fractal site -- HVAC has no Fractal mapping at all, Meter/Network
 # metrics aren't in the approved allowlist as their own dropdown category.
@@ -33,7 +33,7 @@ SUBSYSTEMS_THAT_CAN_APPEAR_FOR_FRACTAL = {
     "EMS IPC & Gateway", "PCS / Inverter", "Battery / BMS",
 }
 
-# CA-03 (docs/OF-141.txt line 578): exactly 7 columns, this exact order.
+# CA-03 (Jira story OF-141 line 578): exactly 7 columns, this exact order.
 EXPECTED_COLUMN_HEADERS = ["Timestamp", "Subsystem", "Device", "Metric", "Value", "Unit", "Quality"]
 
 QUALITY_WORDS = {"Good", "Uncertain", "Stale", "Bad"}
@@ -161,12 +161,12 @@ def test_column_headers_match_ca03(bolivia_monitoring_page):
 
 
 def test_subsystem_dropdown_only_lists_subsystems_that_produce_rows_for_fractal_site(bolivia_monitoring_page):
-    """docs/OF-141.txt line 317: "Gaps Fractal: sin filas por rack/string,
+    """Jira story OF-141 line 317: "Gaps Fractal: sin filas por rack/string,
     sin HVAC, sin heartbeat/IP/latencia gateway, sin entidades Rack/TtcStatus."
     Confirmed live 2026-09-09: the real dropdown for BOLIVIA lists only
     EMS IPC & Gateway / PCS Inverter / Battery BMS -- HVAC, Meter, and
     Network never appear as a filter option at all, because they never
-    have a row to filter (docs/OF-141.txt: no data -> no row, not a
+    have a row to filter (Jira story OF-141: no data -> no row, not a
     disabled/empty option)."""
     table = bolivia_monitoring_page.telemetry_data_table()
     table.wait_for_rows()
@@ -181,10 +181,10 @@ def test_subsystem_dropdown_only_lists_subsystems_that_produce_rows_for_fractal_
     ("PCS / Inverter", "PCS / Inverter"),
 ])
 def test_card_link_filters_telemetry_table_and_scrolls_to_it(bolivia_monitoring_page, card_title, subsystem_label):
-    """CA-16 (docs/OF-141.txt): "Clic desde el panel -> filtra ese grupo
+    """CA-16 (Jira story OF-141): "Clic desde el panel -> filtra ese grupo
     (si existe) ... y baja a la tabla." Confirmed live 2026-09-09 these 2
     are the only cards whose click SCROLLS to this table specifically --
-    matching docs/OmniOps_Phase1_Demo10_V09.html's own handleDeviceStatusLink
+    matching the internal QA note 'OmniOps_Phase1_Demo10_V09''s own handleDeviceStatusLink
     (batteryRacks/pcsFilter scroll to telemetryCard; the other 4 scroll to
     Site Power Telemetry or Import/Export instead). This is scroll-target
     coverage only, NOT filter coverage: per that same demo JS, ALL 6 cards
@@ -208,7 +208,7 @@ def test_card_link_filters_telemetry_table_and_scrolls_to_it(bolivia_monitoring_
 
 def test_live_table_settles_on_rows_or_documented_empty_state(bolivia_monitoring_page):
     """Sanity check that the Live feed always resolves to one of its 2
-    documented states (docs/OF-141.txt CA-19: "No telemetry for the
+    documented states (Jira story OF-141 CA-19: "No telemetry for the
     selected filters." when there's nothing) -- never hangs indefinitely,
     never shows some third, undocumented state."""
     table = bolivia_monitoring_page.telemetry_data_table()
@@ -216,33 +216,54 @@ def test_live_table_settles_on_rows_or_documented_empty_state(bolivia_monitoring
     assert table.row_count() > 0 or table.is_empty()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Client-approved design (docs/OmniOps_Phase1_Demo10_V09.html, "
-           "lines 14154-14160: static example rows run 14:22:30 -> "
-           "14:22:27, newest first) overrides docs/OF-141.txt's CA-04 text "
-           "('mas antiguo arriba, mas nuevo abajo') where they conflict -- "
-           "confirmed by the user 2026-09-09 the demo is what the client "
-           "actually signed off on, CA-04's ordering is outdated. The real "
-           "deployed app still follows the old CA-04 order (confirmed live: "
-           "the card's own subtitle says 'Oldest first, newest at bottom', "
-           "and data-index increases top-to-bottom), so this is a real "
-           "defect against the approved design, not a doc misreading.")
 def test_live_table_shows_newest_rows_first(bolivia_monitoring_page):
+    """Client-approved design (the internal QA note 'OmniOps_Phase1_Demo10_V09', lines
+    14154-14160: static example rows run 14:22:30 -> 14:22:27, newest
+    first) overrides Jira story OF-141's CA-04 text ('mas antiguo arriba,
+    mas nuevo abajo') where they conflict -- confirmed by the user
+    2026-09-09 the demo is what the client actually signed off on, CA-04's
+    ordering is outdated.
+
+    CONFIRMED DEFECT 2026-09-09 (Qase Defect #27): the real deployed app
+    followed the old CA-04 order instead -- the card's own subtitle said
+    'Oldest first, newest at bottom', and the newest reading landed at the
+    bottom (needing a scroll to see it). FIXED as of 2026-09-21
+    (re-verified after the JF/FixMonitoring deploy): the subtitle now
+    reads 'Newest first, oldest at bottom', and a live before/after check
+    confirms the top rows' own Timestamp advances to the newest tick in
+    place -- no scrolling needed to see fresh data. (An earlier same-day
+    check used this table's internal `_data_index` instead, which doesn't
+    actually encode cross-tick chronological order -- every row in a
+    single tick shares the same Timestamp, so that check couldn't tell
+    old-vs-new ticks apart at all; comparing the real rendered Timestamp
+    across two ticks, done here, is the methodology that actually answers
+    the question.)"""
+    card = bolivia_monitoring_page.page.locator(".card:has(.card-title:text-is('Telemetry Data Table'))")
+    subtitle = card.locator(".card-subtitle").first.inner_text().strip()
+    assert "newest first" in subtitle.lower(), (
+        f"expected the card subtitle to say 'Newest first, oldest at bottom', got: {subtitle!r}")
+
     table = bolivia_monitoring_page.telemetry_data_table()
     table.wait_for_rows()
-    rows = table.all_row_values()
-    if len(rows) < 2:
-        pytest.skip(f"only {len(rows)} row(s) rendered -- not enough to check order")
+    top_row_before = table.row_values(0)
+    timestamp_before = top_row_before.get("Timestamp")
+    if timestamp_before is None:
+        pytest.skip("no Timestamp column value on the top row to compare")
 
-    indices = [r["_data_index"] for r in rows]
-    assert indices == sorted(indices, reverse=True), (
-        f"expected rows top-to-bottom in descending _data_index order "
-        f"(newest first, per the client-approved demo), got: {indices}")
+    deadline = table.page.evaluate("Date.now()") + 20000
+    timestamp_after = timestamp_before
+    while timestamp_after == timestamp_before and table.page.evaluate("Date.now()") < deadline:
+        table.page.wait_for_timeout(1000)
+        timestamp_after = table.row_values(0).get("Timestamp")
+
+    assert timestamp_after != timestamp_before, (
+        f"expected the TOP row's own Timestamp to advance to a newer tick within 20s "
+        f"(proving fresh data lands at top, not the bottom), but it stayed frozen at "
+        f"{timestamp_before!r}")
 
 
 def test_row_quality_is_one_of_the_documented_words(bolivia_monitoring_page):
-    """docs/OF-140.txt / docs/ComponentesStatusMonitorign.md sec 8 (cross-
+    """Jira story OF-140 / the internal QA note 'ComponentesStatusMonitorign' sec 8 (cross-
     confirmed): Quality is always Good, Uncertain, Stale, or Bad -- never a
     raw/blank value."""
     table = bolivia_monitoring_page.telemetry_data_table()
@@ -270,7 +291,7 @@ def _latest_value_for(table, metric, device=None):
 
 def test_battery_bms_soc_row_matches_simulator(bolivia_monitoring_page):
     """True cross-layer ground truth for the Telemetry Data Table's own
-    "SOC" row (Battery / BMS -- docs/OF-141.txt: Fractal EMU.system_soc_pct
+    "SOC" row (Battery / BMS -- Jira story OF-141: Fractal EMU.system_soc_pct
     has no rack/string coordinate, so it's the site-level aggregate row,
     same value source as the Device Status Panel's "SoC range" line, just
     shown here as raw telemetry instead). Doesn't filter by Device: a
@@ -310,7 +331,7 @@ def test_battery_bms_soc_row_matches_simulator(bolivia_monitoring_page):
 @pytest.mark.parametrize("pcs_index, device", [(0, "PCS-1"), (1, "PCS-2"), (2, "PCS-3")])
 def test_pcs_active_power_row_matches_simulator(bolivia_monitoring_page, pcs_index, device):
     """True cross-layer ground truth for one PCS's own "Active Power" row
-    (docs/OF-141.txt: PcsModule.p_ac_kw -> "Active Power" / "PCS / Inverter",
+    (Jira story OF-141: PcsModule.p_ac_kw -> "Active Power" / "PCS / Inverter",
     one row per PCS device) -- NOT the Device Status Panel's site-wide sum
     (read_fractal_site_total_kw); this checks each PCS individually. Unlike
     Battery/BMS's single aggregate device, PCS/Inverter has 3 real,
@@ -368,7 +389,7 @@ def test_pcs_placeholder_device_row_is_a_real_backend_value_not_a_ui_artifact(
        moment -- close enough (~4%, expected from the read/ingest latency
        already established elsewhere in this file) to confirm this is the
        legitimate EMU-sourced site-wide aggregate documented in
-       docs/OF-141.txt ('EMU -> active_power_kw -> PCS / sitio'), not
+       Jira story OF-141 ('EMU -> active_power_kw -> PCS / sitio'), not
        garbage data. So the VALUE is correct; only the 'device' identity
        (tested separately below, and already reproduced in the API layer
        here) is the actual defect."""
@@ -387,7 +408,7 @@ def test_pcs_placeholder_device_row_is_a_real_backend_value_not_a_ui_artifact(
 @pytest.mark.xfail(
     strict=True,
     reason="CONFIRMED DEFECT (2026-09-11), root cause pinned down via "
-           "docs/omniops_data_intake_BOLIVIA.xlsx's own 'Intake Fields' "
+           "the internal QA note 'omniops_data_intake_BOLIVIA''s own 'Intake Fields' "
            "sheet, confirmed by the user (this site's own config author): "
            "the site's Data Intake config has TWO separate gateway fields -- "
            "'gateway_mac_id' = '00:00:00:00:00:00', itself annotated "
@@ -437,7 +458,7 @@ def test_pcs_inverter_rows_never_show_mac_placeholder_device(bolivia_monitoring_
 
 
 def test_global_time_range_does_not_affect_live_window(bolivia_monitoring_page):
-    """CA-09 (docs/OF-141.txt): "Ventana fija de 24 horas. El filtro global
+    """CA-09 (Jira story OF-141): "Ventana fija de 24 horas. El filtro global
     7d/30d no la cambia." Confirmed live 2026-09-09: the subsystem dropdown
     still lists the same 3 subsystems before and after switching the page's
     global time-range selector to "Last 30 days" -- the Live table's 24h
@@ -463,7 +484,7 @@ def test_global_time_range_does_not_affect_live_window(bolivia_monitoring_page):
 
 
 def test_pcs_event_bitfield_is_hex_text(bolivia_monitoring_page):
-    """CA-07 (docs/OF-141.txt): "Eventos -> texto hex." Confirmed live
+    """CA-07 (Jira story OF-141): "Eventos -> texto hex." Confirmed live
     2026-09-09: "PCS Event Bitfield" values look like "00000082" -- an
     8-digit hex string, Unit "-" (not a number with a made-up unit)."""
     table = bolivia_monitoring_page.telemetry_data_table()
@@ -480,7 +501,7 @@ def test_pcs_event_bitfield_is_hex_text(bolivia_monitoring_page):
 
 
 def test_timestamp_column_is_valid_local_time_converted_from_utc(bolivia_monitoring_page):
-    """Qase #124 [TDT-01] and docs/OmniOps_Phase1_Demo10_V09.html's own
+    """Qase #124 [TDT-01] and the internal QA note 'OmniOps_Phase1_Demo10_V09''s own
     example rows literally show an ISO-ish 'YYYY-MM-DD HH:MM:SS UTC'
     format. RETRACTED as a defect (2026-09-09, per the user): the real
     app shows a local-time timestamp (no explicit UTC label) -- because
@@ -533,13 +554,13 @@ def test_timestamp_column_is_valid_local_time_converted_from_utc(bolivia_monitor
 
 
 def test_balancing_status_is_enumerated_value(bolivia_monitoring_page):
-    """Qase #129 [TDT-06] + CA-07 (docs/OF-141.txt line 588): 'Balanceo ->
+    """Qase #129 [TDT-06] + CA-07 (Jira story OF-141 line 588): 'Balanceo ->
     Active / Inactive / Fault' -- balancestatus is a raw numeric/boolean
     field translated to one of these 3 words, not shown as a raw 0/1.
 
     Expected to skip on a Fractal site: confirmed 2026-09-09 (searched up
     to 9000px back with no match) that 'Balancing Status' never renders
-    for BOLIVIA at all -- per docs/OF-141.txt line 652 ('Balanceo -> solo
+    for BOLIVIA at all -- per Jira story OF-141 line 652 ('Balanceo -> solo
     racks'), this metric only applies at rack level, and a Fractal site
     has 0 real racks (same root cause as the already-documented "phantom
     racks" gap). Kept here (rather than deleted) so this assertion runs
@@ -595,7 +616,7 @@ def test_quality_transitions_correctly_for_a_single_metric_over_time(bolivia_mon
     outcome, not a sign of a broken test: fast-updating rows (Battery/PCS,
     ~2-3s cadence) rarely sit still long enough to visibly age between
     Quality tiers within one short poll window, and slow-updating ones
-    (docs/OF-140.txt: 'ambient temperature... up to 15-60 min') don't
+    (Jira story OF-140: 'ambient temperature... up to 15-60 min') don't
     transition inside it either. Verifying the EXACT 2x/5x multiplier
     would need the backend's real per-metric interval configuration,
     which isn't exposed anywhere in this UI."""
@@ -650,7 +671,7 @@ def test_subsystem_filter_shows_only_that_subsystems_rows(bolivia_monitoring_pag
 
 
 # ---------------------------------------------------------------------------
-# "Browse snapshots" modal (docs/OF-141.txt CA-21..28) -- a DIFFERENT data
+# "Browse snapshots" modal (Jira story OF-141 CA-21..28) -- a DIFFERENT data
 # source (DB 5-min buckets, monitoring.MonitoringStat) than the Live table
 # above, frozen at the moment it's opened (no live updates).
 # ---------------------------------------------------------------------------
@@ -674,7 +695,7 @@ def test_snapshots_modal_column_headers_match_live_table(bolivia_monitoring_page
 
 
 def test_snapshots_modal_window_buttons_match_ca22(bolivia_monitoring_page):
-    """CA-22 (docs/OF-141.txt): "Ventanas: ultimos 5 / 15 / 60 minutos,"
+    """CA-22 (Jira story OF-141): "Ventanas: ultimos 5 / 15 / 60 minutos,"
     and "5 minutes" is the default active one on open."""
     table = bolivia_monitoring_page.telemetry_data_table()
     table.wait_for_rows()
@@ -684,7 +705,7 @@ def test_snapshots_modal_window_buttons_match_ca22(bolivia_monitoring_page):
 
 
 def test_snapshots_modal_shows_newest_records_first(bolivia_monitoring_page):
-    """CA-25 (docs/OF-141.txt): "En el modal: mas reciente arriba (al reves
+    """CA-25 (Jira story OF-141): "En el modal: mas reciente arriba (al reves
     que Live)." Confirmed live 2026-09-09: the pagination area's own label
     literally says "Newest records first" -- and unlike the Live table
     (defect: test_live_table_shows_newest_rows_first), this one is
@@ -700,7 +721,7 @@ def test_snapshots_modal_shows_newest_records_first(bolivia_monitoring_page):
 
 
 def test_snapshots_modal_page_size_options_match_ca24(bolivia_monitoring_page):
-    """CA-24 (docs/OF-141.txt): "Paginas de 25 / 50 / 100 filas; se ve
+    """CA-24 (Jira story OF-141): "Paginas de 25 / 50 / 100 filas; se ve
     total de filas y paginas.\""""
     table = bolivia_monitoring_page.telemetry_data_table()
     table.wait_for_rows()
@@ -711,23 +732,6 @@ def test_snapshots_modal_page_size_options_match_ca24(bolivia_monitoring_page):
         f"unexpected pagination info format: {modal.pagination_info()!r}")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Lead-approved expected behavior (confirmed 2026-09-09, overrides "
-           "docs/OF-140.txt / docs/ComponentesStatusMonitorign.md's literal "
-           "text describing historical Quality as a bucket-interpolation-"
-           "only Good/Uncertain scheme): per the same raw-data correction as "
-           "test_snapshots_modal_shows_raw_readings_not_bucket_summaries, "
-           "each snapshot row's Quality should use the SAME Good/Uncertain/"
-           "Stale/Bad formula as Live -- based on that specific reading's "
-           "own real freshness/latency -- not a bucket-interpolation flag. "
-           "Confirmed live 2026-09-09: every sampled snapshot row shows "
-           "only 'Uncertain', including PCS rows, even though the Live "
-           "table's own PCS rows are consistently 'Bad' right now due to a "
-           "real, ongoing PCS communication latency issue -- the same "
-           "underlying PCS readings that should carry that same 'Bad' into "
-           "the snapshot, but don't, because the snapshot's Quality isn't "
-           "derived from per-reading freshness at all.")
 def test_snapshots_modal_quality_reflects_per_reading_freshness_like_live(bolivia_monitoring_page):
     """If the modal used Live's own Quality formula on real per-reading
     freshness, a subsystem that Live currently shows as "Bad" (PCS /
@@ -736,7 +740,17 @@ def test_snapshots_modal_quality_reflects_per_reading_freshness_like_live(bolivi
     should show at least some "Bad" rows in the snapshot too, not just
     "Good"/"Uncertain". This doesn't assert an exact Quality value: it
     only asserts that the historical view is even CAPABLE of showing the
-    same distribution Live shows for the same underlying devices."""
+    same distribution Live shows for the same underlying devices.
+
+    CONFIRMED DEFECT 2026-09-09 (half of Qase Defect #26 -- the Quality
+    half; see test_snapshots_modal_shows_raw_readings_not_bucket_summaries
+    for the still-open raw-vs-bucket half): every sampled snapshot row
+    showed only 'Uncertain', including PCS rows, even though Live's own
+    PCS rows were consistently 'Bad' at the same moment due to a real,
+    ongoing PCS communication latency issue. FIXED as of 2026-09-21
+    (re-verified after the JF/FixMonitoring deploy, the internal QA note 'MnitoringFix'
+    section 6.2's RAM+historical merge): snapshot Quality now reflects
+    real per-reading freshness like Live."""
     table = bolivia_monitoring_page.telemetry_data_table()
     table.wait_for_rows()
     table.select_subsystem("PCS / Inverter")
@@ -767,7 +781,7 @@ def test_snapshots_modal_quality_reflects_per_reading_freshness_like_live(bolivi
 
 def test_snapshots_modal_subsystem_dropdown_matches_live_table(bolivia_monitoring_page):
     """The modal's own subsystem filter should offer the same real
-    subsystems as the Live table's (docs/OF-141.txt line 317's Fractal
+    subsystems as the Live table's (Jira story OF-141 line 317's Fractal
     gaps apply here too -- it's the same underlying data, just a different
     time slice/source)."""
     table = bolivia_monitoring_page.telemetry_data_table()
@@ -791,7 +805,7 @@ def _snapshot_total_rows(modal):
 
 
 def test_snapshots_modal_window_row_total_grows_with_window_size(bolivia_monitoring_page):
-    """CA-22 (docs/OF-141.txt): confirms switching 5/15/60 min genuinely
+    """CA-22 (Jira story OF-141): confirms switching 5/15/60 min genuinely
     fetches more real data, not just changing which button looks active.
     Doesn't assert an exact row count against monitoring.MonitoringStat:
     confirmed 2026-09-09 the rows-per-bucket count itself isn't constant
@@ -827,7 +841,7 @@ def test_snapshots_modal_window_row_total_grows_with_window_size(bolivia_monitor
            "unreachable for any established site.")
 def test_snapshots_modal_good_quality_is_effectively_unreachable_for_this_site(bolivia_site_id, db_conn):
     """Historical Quality is Good when a bucket is NOT interpolated,
-    Uncertain when it is (docs/ComponentesStatusMonitorign.md sec 8).
+    Uncertain when it is (the internal QA note 'ComponentesStatusMonitorign' sec 8).
     Confirmed via direct DB query 2026-09-09: EVERY monitoring.MonitoringStat
     row for BOLIVIA (1526 rows, spanning 5 full days of genuinely continuous
     live telemetry -- independently verified throughout this session) has
@@ -909,7 +923,7 @@ def test_snapshots_modal_window_shows_genuinely_recent_data(bolivia_monitoring_p
 
 
 def test_snapshots_modal_stays_frozen_while_open(bolivia_monitoring_page):
-    """CA-23 (docs/OF-141.txt): "El momento de referencia se congela al
+    """CA-23 (Jira story OF-141): "El momento de referencia se congela al
     abrir el modal." Confirms the OTHER half of that promise, beyond just
     the reference moment being in the past when it opens: while the modal
     stays open, it must never silently fetch newer data out from under the
@@ -938,30 +952,50 @@ def test_snapshots_modal_stays_frozen_while_open(bolivia_monitoring_page):
         "frozen at the moment it was opened, per its own on-screen note")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Lead-approved expected behavior (confirmed 2026-09-09, overrides "
-           "docs/OF-141.txt's literal text -- \"Fuente: Buckets consolidados "
-           "cada 5 min en BD\" -- per the user: the lead never approved that "
-           "bucket design; the modal should show RAW individual telemetry "
-           "readings for the selected window, same granularity as Live, not "
-           "one consolidated summary row per metric per 5-min bucket. "
-           "Confirmed live 2026-09-09: in the default 'Last 5 minutes' "
-           "window, EVERY (Subsystem, Device, Metric) tuple appears at most "
-           "once (e.g. PCS-1's own 'Active Power', which Live ticks every "
-           "~2-3s, shows only 1 row for the whole 5-minute window) -- the "
-           "unambiguous signature of one summarized row per bucket, not raw "
-           "per-reading data.")
-def test_snapshots_modal_shows_raw_readings_not_bucket_summaries(bolivia_monitoring_page):
-    """If this were raw telemetry (same source as Live), a frequently-
-    updating metric like a PCS's own "Active Power" should appear MANY
-    times within "Last 5 minutes" (Live ticks it every few seconds) --
-    not once. This is a structural check for the data model itself, not a
-    specific value: it doesn't matter what the readings say, only that
-    there's more than one of them per metric+device inside a single
-    5-minute window."""
-    from collections import Counter
+def test_snapshots_modal_row_timestamp_renders_in_english(bolivia_monitoring_page):
+    """CONFIRMED DEFECT (Qase Defect #54): 'Browse snapshots' row Timestamp
+    rendered a Spanish, day-first datetime (e.g. '17 sept 2026, 10:52:18')
+    instead of English, month-first (e.g. 'Sep 17, 2026, 10:52:18'). Checks
+    the STRUCTURAL shape (month name before the day number) rather than
+    the month name itself, since some abbreviations (e.g. "sep") are
+    identical in both languages."""
+    table = bolivia_monitoring_page.telemetry_data_table()
+    table.wait_for_rows()
+    modal = table.browse_snapshots()
+    modal.wait_for_rows()
+    if modal.row_count() == 0:
+        pytest.skip("no snapshot rows right now")
 
+    timestamp = modal.all_row_values()[0]["Timestamp"]
+    assert re.match(r"^[A-Za-z]+\.?\s+\d{1,2},\s+\d{4},\s+\d{2}:\d{2}:\d{2}$", timestamp), (
+        f"expected an English, month-first 'Month D, YYYY, HH:MM:SS' timestamp, "
+        f"got: {timestamp!r}")
+
+
+def test_snapshots_modal_shows_raw_readings_not_bucket_summaries(bolivia_monitoring_page):
+    """If this were raw telemetry (same source as Live), the TOTAL row
+    count for "Last 5 minutes" should be many times larger than the number
+    of distinct (Subsystem, Device, Metric) tuples that exist for the site
+    -- Live ticks each metric every few seconds, so a 5-minute window
+    should hold many readings per metric, not one summarized row per
+    metric per bucket.
+
+    CONFIRMED DEFECT 2026-09-09 (Qase Defect #26, the raw-vs-bucket half --
+    see test_snapshots_modal_quality_reflects_per_reading_freshness_like_live
+    for the OTHER half, the Quality formula, which IS fixed): back then
+    every (Subsystem, Device, Metric) tuple appeared at most once in the
+    whole 5-minute window.
+
+    RE-CHECKED 2026-09-21 after the JF/FixMonitoring deploy: this is
+    ACTUALLY FIXED too, not broken -- a prior version of this test only
+    inspected the modal's first page (all_row_values() reads the current
+    DOM page only, not every page) and wrongly concluded "no repeats"
+    just because a single tick already produces more distinct metrics than
+    fit on one page. The real total (from pagination_info(), e.g. "Rows
+    1-25 of 2596" for 5 minutes) proves the opposite: ~2600 rows in 5
+    minutes across ~20-25 distinct metrics is roughly one reading every
+    2-3 seconds per metric -- matching Live's own cadence, not a 5-minute
+    consolidated summary (which would total ~20-25 rows, not ~2600)."""
     table = bolivia_monitoring_page.telemetry_data_table()
     table.wait_for_rows()
     modal = table.browse_snapshots()
@@ -971,15 +1005,21 @@ def test_snapshots_modal_shows_raw_readings_not_bucket_summaries(bolivia_monitor
     if modal.row_count() == 0:
         pytest.skip("no snapshot rows in 'Last 5 minutes' right now")
 
-    counts = Counter((r["Subsystem"], r["Device"], r["Metric"]) for r in modal.all_row_values())
-    most_repeated_tuple, repeat_count = counts.most_common(1)[0]
-    assert repeat_count > 1, (
-        f"expected at least one (Subsystem, Device, Metric) to appear more "
-        f"than once within 'Last 5 minutes' (raw readings arrive every few "
-        f"seconds per docs/OF-141.txt's own Live cadence) -- got at most "
-        f"{repeat_count} for every tuple, e.g. {most_repeated_tuple!r}. This "
-        f"means the modal is showing one consolidated bucket summary per "
-        f"metric, not raw readings.")
+    first_page_rows = modal.all_row_values()
+    distinct_tuples_on_page = len({(r["Subsystem"], r["Device"], r["Metric"]) for r in first_page_rows})
+
+    match = re.search(r"of\s+([\d,]+)", modal.pagination_info())
+    assert match, f"couldn't parse a total row count out of {modal.pagination_info()!r}"
+    total_rows = int(match.group(1).replace(",", ""))
+
+    assert total_rows > distinct_tuples_on_page * 3, (
+        f"expected the TOTAL row count for 'Last 5 minutes' ({total_rows}) to be "
+        f"several times larger than the number of distinct metrics on one page "
+        f"({distinct_tuples_on_page}) -- raw readings arrive every few seconds per "
+        f"Jira story OF-141's own Live cadence, so a 5-minute window should hold many "
+        f"readings per metric. A total close to the distinct-metric count means the "
+        f"modal is showing one consolidated bucket summary per metric, not raw "
+        f"readings.")
 
 
 def _trend_focus_value_for(page, option_text_prefix):
@@ -1003,30 +1043,20 @@ def _trend_focus_value_for(page, option_text_prefix):
     ("Meters / CT-PT", "Meter / CT"),
     ("Network / Tunnel", "EMS & Network"),
 ])
-@pytest.mark.xfail(
-    strict=True,
-    reason="Confirmed against docs/OmniOps_Phase1_Demo10_V09.html:25539-"
-           "25597 (handleDeviceStatusLink -- the client-approved demo's own "
-           "JS): EVERY ONE of the 6 Device Status Panel card links calls "
-           "BOTH setTrend(...) (updates this chart's Trend Focus) and "
-           "setSubsystem(...) (updates Telemetry's subsystem filter) -- "
-           "only the scrollIntoView target differs per card (2 scroll to "
-           "Telemetry, 3 to this chart, 1 to Import/Export). An earlier, "
-           "narrower version of this finding covered only "
-           "Battery/BMS+PCS/Inverter; confirmed live 2026-09-09 (with the "
-           "Trend Focus and Telemetry subsystem filters explicitly reset "
-           "before each click, to rule out leftover state from a previous "
-           "click) that the Site Power Telemetry chart's Trend Focus "
-           "select NEVER changes for ANY of the 6 cards -- it's a general "
-           "gap across all 6, not specific to PCS or to only 2 of them.")
 def test_card_link_also_filters_site_power_telemetry_chart(bolivia_monitoring_page, card_title, trend_focus_option):
-    """Per docs/OmniOps_Phase1_Demo10_V09.html's own handleDeviceStatusLink,
+    """Per the internal QA note 'OmniOps_Phase1_Demo10_V09''s own handleDeviceStatusLink,
     every Device Status Panel card's filter link should also switch the
     Site Power Telemetry chart's Trend Focus to the matching option --
     regardless of which section the click actually scrolls to. Resets both
     Trend Focus AND Telemetry's own subsystem filter to a neutral baseline
     before each click (not just Trend Focus) so a leftover selection from
-    an earlier click/test can't be mistaken for this click's own effect."""
+    an earlier click/test can't be mistaken for this click's own effect.
+
+    CONFIRMED DEFECT 2026-09-09 (Qase Defect #25): the Site Power
+    Telemetry chart's Trend Focus select never changed for ANY of the 6
+    Device Status Panel card links -- a general gap across all 6, not
+    specific to any one card. FIXED as of 2026-09-21 (re-verified after
+    the JF/FixMonitoring deploy) -- for all 6 cards."""
     page = bolivia_monitoring_page.page
     trend_select = page.locator(
         ".card:has(.card-title:text-is('Site Power Telemetry')) .filters-group select.select")
@@ -1096,14 +1126,14 @@ def test_card_link_filters_telemetry_subsystem_for_the_3_fractal_relevant_cards(
     NOT just Battery/BMS and PCS/Inverter as an earlier, narrower version
     of this finding assumed. EMS IPC & Gateway's link ("Open control vs
     actual") scrolls to a DIFFERENT card (Dispatch Limits & Tracking, per
-    docs/OmniOps_Phase1_Demo10_V09.html's own emsControl action, which
+    the internal QA note 'OmniOps_Phase1_Demo10_V09''s own emsControl action, which
     scrolls to sitePowerCard) rather than to Telemetry -- that's a
     deliberate difference in scroll target, not a sign the subsystem
     filter itself is broken; the filter update happens regardless of
     where the click scrolls to.
 
     The other 3 cards (HVAC / Thermal, Meters / CT-PT, Network / Tunnel)
-    aren't included here: per docs/OF-141.txt's "Gaps Fractal", those
+    aren't included here: per Jira story OF-141's "Gaps Fractal", those
     subsystems produce zero Telemetry rows for a Fractal site, so there's
     no valid filter option for them to switch to on THIS site -- not
     something this test can meaningfully verify."""
@@ -1125,7 +1155,7 @@ def test_card_link_filters_telemetry_subsystem_for_the_3_fractal_relevant_cards(
     ("PCS / Inverter", "Device: PCS"),
 ])
 def test_card_link_shows_device_chip_per_ca16(bolivia_monitoring_page, card_title, expected_chip_text):
-    """CA-16 (docs/OF-141.txt): 'Clic desde el panel -> filtra ese grupo
+    """CA-16 (Jira story OF-141): 'Clic desde el panel -> filtra ese grupo
     (si existe), chip "Device: ..." si aplica, y baja a la tabla.'
 
     RETRACTED an earlier, incorrect version of this finding (2026-09-09):
@@ -1155,7 +1185,7 @@ def test_card_link_shows_device_chip_per_ca16(bolivia_monitoring_page, card_titl
 
 
 def test_device_chip_can_be_cleared_per_ca17(bolivia_monitoring_page):
-    """CA-17 (docs/OF-141.txt): "Clear en el chip -> quita el filtro de
+    """CA-17 (Jira story OF-141): "Clear en el chip -> quita el filtro de
     dispositivo; el de subsistema se mantiene." RETRACTED an earlier,
     incorrect version of this finding (2026-09-10) that claimed no clear
     control exists at all: that check only looked for a control NESTED
@@ -1235,7 +1265,7 @@ def test_battery_bms_card_link_device_filter_is_recoverable_via_clear_button(bol
     table with no recovery. That check only tried recovering by switching
     the SUBSYSTEM dropdown (to "All Subsystems" and back), which indeed
     never clears the device-level filter -- but that's not a bug: CA-17
-    (docs/OF-141.txt) only prescribes a dedicated "Clear" button as the
+    (Jira story OF-141) only prescribes a dedicated "Clear" button as the
     mechanism for removing a device-level chip, not switching subsystem.
     Confirmed live 2026-09-10 (see test_device_chip_can_be_cleared_per_
     ca17): the real app DOES have that Clear button (a sibling of the
@@ -1262,24 +1292,18 @@ def test_battery_bms_card_link_device_filter_is_recoverable_via_clear_button(bol
         "clicking Clear on the device chip left by Battery/BMS's card link")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Confirmed live 2026-09-10, across all 3 time windows (Last "
-           "5/15/60 minutes): filtering the 'Browse snapshots' modal to "
-           "'EMS IPC & Gateway' never shows any real row -- only the "
-           "documented empty-state message ('No telemetry for the "
-           "selected filters.'). This is despite the subsystem dropdown "
-           "itself showing a nonzero historical count ('EMS IPC & Gateway "
-           "(84)'), and EMS IPC & Gateway being one of the 3 subsystems "
-           "confirmed to have real Live rows for this Fractal site (see "
-           "test_card_link_filters_telemetry_subsystem_for_the_3_fractal_"
-           "relevant_cards). Battery/BMS and PCS/Inverter both show real "
-           "snapshot rows under the same conditions.")
 def test_ems_gateway_shows_real_rows_in_snapshots_modal(bolivia_monitoring_page):
     """EMS IPC & Gateway has real, ongoing Live telemetry (confirmed
     elsewhere in this suite) and a nonzero historical count in the
     modal's own subsystem dropdown -- so at least one of its 3 time
-    windows should show real historical rows, not just the empty state."""
+    windows should show real historical rows, not just the empty state.
+
+    CONFIRMED DEFECT 2026-09-10 (Qase Defect #30): across all 3 time
+    windows (Last 5/15/60 minutes), filtering to 'EMS IPC & Gateway' never
+    showed any real row -- only the empty-state message -- despite the
+    dropdown itself showing a nonzero historical count ('EMS IPC & Gateway
+    (84)'). FIXED as of 2026-09-21 (re-verified after the JF/FixMonitoring
+    deploy, the internal QA note 'MnitoringFix' section 6.2's RAM+historical merge)."""
     page = bolivia_monitoring_page.page
     table = bolivia_monitoring_page.telemetry_data_table()
     table.wait_for_rows()
@@ -1312,5 +1336,30 @@ def test_ems_gateway_shows_real_rows_in_snapshots_modal(bolivia_monitoring_page)
         "a nonzero historical count in its own subsystem dropdown")
 
 
+def test_snapshots_modal_subsystem_dropdown_has_no_misleading_count(bolivia_monitoring_page):
+    """CONFIRMED DEFECT (Qase Defect #29): the subsystem dropdown showed an
+    all-time historical count in parentheses (e.g. 'PCS / Inverter
+    (1706)') that a user could easily misread as "how much data exists in
+    the active 5/15/60-minute window" -- filtering to 'Last 60 minutes'
+    only returned 60 real rows, a huge unexplained gap with no indication
+    anywhere in the UI. Not covered by a permanent automated test before
+    today (per the defect's own note: "verified manually... not covered by
+    a permanent automated test").
 
+    FIXED as of 2026-09-21 (re-verified after the JF/FixMonitoring
+    deploy): the dropdown options no longer carry any count at all --
+    resolving the ambiguity by removing the misleading number entirely,
+    rather than recalculating it per-window or relabeling it (either of
+    which the original defect would also have accepted)."""
+    table = bolivia_monitoring_page.telemetry_data_table()
+    table.wait_for_rows()
+    modal = table.browse_snapshots()
+    modal.wait_for_rows()
+    options = modal.subsystem_options()
+    assert options, "expected at least one subsystem option"
 
+    for option_text in options:
+        assert not re.search(r"\(\s*[\d,]+\s*\)", option_text), (
+            f"expected no bare numeric count in the subsystem dropdown (it was "
+            f"ambiguous whether it meant the active window or an all-time total), "
+            f"got: {option_text!r} (full list: {options!r})")

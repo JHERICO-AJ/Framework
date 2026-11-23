@@ -1,5 +1,5 @@
 """Selectors for the Telemetry Data Table (Data & Monitoring, top row next
-to the Device Status Panel -- docs/OF-141.txt).
+to the Device Status Panel -- Jira story OF-141).
 
 Confirmed against the real deployed app (2026-09-09). `.card` is reused
 across many sections (same issue already documented for `.device-card`), so

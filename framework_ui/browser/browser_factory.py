@@ -34,6 +34,17 @@ class BrowserFactory:
         self.page = self.context.new_page()
         return self.page
 
+    def new_isolated_page(self, locale=None):
+        """A page in its OWN browser context (separate cookies/session) on the same browser -- lets one test
+        session hold several users at once (for example an AM and an approver). Closed with the browser.
+        locale ('en-US', 'de-DE', 'es-ES'...) fixes the browser language; without it Chromium uses the system language, which
+        changes the thousands separator of the amounts (the HU-15 format tests always pass it)."""
+        options = dict(ignore_https_errors=True, viewport={"width": 1920, "height": 1080})
+        if locale:
+            options["locale"] = locale
+        context = self.browser.new_context(**options)
+        return context.new_page()
+
     def __exit__(self, *exc):
         for step in (getattr(self.context, "close", None),
                      getattr(self.browser, "close", None),

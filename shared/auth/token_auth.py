@@ -7,7 +7,9 @@ import json
 import urllib.error
 import urllib.request
 
-from shared.auth.base import Auth, DEFAULT_TIMEOUT_S, parse_iso_datetime, request_json
+from shared.auth.base import Auth, DEFAULT_TIMEOUT_S
+from shared.utils.http import request_json
+from shared.utils.parsing import parse_iso_datetime
 from shared.config.credentials import load_credentials
 
 

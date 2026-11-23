@@ -119,27 +119,22 @@ def test_total_sites_chip_matches_db(require_omniops, fleet_overview_page, total
     assert grid.chip_value(0) == str(total_fleet_sites)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-16, Qase Defect TBD, same one as "
-           "test_sites_requiring_attention_ignores_time_range below). "
-           "REVISED per the developer (2026-09-16): this card's 'current' "
-           "badge means it must show the flat/CURRENT count of sites with an "
-           "open alert (count_sites_requiring_attention, not windowed by any "
-           "range) -- alerts never auto-close, so 'flat' and 'current' are "
-           "the same thing here. The previous version of this test compared "
-           "against count_sites_requiring_attention_windowed(hours=24), which "
-           "coincidentally passed because the UI's OWN bug (silently "
-           "following the Topbar filter like Sites with Alarms does) made it "
-           "match that wrong formula at the default 24h range -- confirmed "
-           "live the flat/true value is 11, but the card showed 6 at 24h.")
 def test_sites_requiring_attention_matches_db(require_omniops, fleet_overview_page, db_conn, all_site_ids):
-    """Cross-layer, fleet-wide, FLAT/CURRENT (not windowed) -- see this
-    test's xfail reason above for why the previous windowed(hours=24)
-    comparison was itself hiding the bug."""
+    """Cross-layer, fleet-wide, FLAT/CURRENT (not windowed by the Topbar).
+
+    CONFIRMED 2026-10-01 directly by the dev (supersedes both the earlier
+    -- wrong -- 'count_sites_with_alarms' assumption AND Jira story OF-298's
+    claim that this follows the Topbar window): the big number is
+    Warning + Critical + Offline (per-site status, Offline sites included
+    even with zero alert rows), and the small text below it ("N Critical")
+    is Critical + Offline only (Warning excluded from the label). See
+    count_sites_requiring_attention's docstring for the exact per-site
+    classification rule."""
     grid = fleet_overview_page.status_grid()
-    expected = count_sites_requiring_attention(db_conn, all_site_ids)
-    assert grid.card_value("SITES REQUIRING ATTENTION") == str(expected)
+    expected_value, expected_label = count_sites_requiring_attention(db_conn, all_site_ids)
+    assert grid.card_value("SITES REQUIRING ATTENTION") == str(expected_value)
+    expected_label_text = f"{expected_label} Critical" if expected_label > 0 else "No Critical"
+    assert grid.trend_text("SITES REQUIRING ATTENTION") == expected_label_text
 
 
 def test_critical_alarms_matches_db(require_omniops, fleet_overview_page, db_conn, all_site_ids):
@@ -194,26 +189,14 @@ def test_history_kpi_cards_match_db_for_range(
 
 
 @pytest.mark.parametrize("range_label", ["Last 7 days", "Last 30 days"])
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-16, Qase Defect TBD). Sites Requiring "
-           "Attention carries a 'current' badge (not a '24H/7D/30D' range "
-           "badge, confirmed by test_status_grid_time_badges_current_vs_range) "
-           "and per the developer (2026-09-16) is meant to show the CURRENT "
-           "fleet state -- unaffected by the Topbar's time-range filter, the "
-           "same as Connected Sites/Online Rate/MTTR. Instead it silently "
-           "follows the filter exactly like Sites with Alarms does: confirmed "
-           "live the DB's flat/current count (11 sites with an open alert --"
-           "alerts never auto-close, so flat IS current) stays 11 regardless "
-           "of range, but the card itself showed 6 at 24h, 9 at 7d, 11 at "
-           "30d -- tracking the SAME windowed query as Sites with Alarms "
-           "instead of staying fixed at the current value.")
 def test_sites_requiring_attention_ignores_time_range(
         require_omniops, fleet_overview_page, db_conn, all_site_ids, range_label):
-    """Per the developer's clarification (2026-09-16): the 'current' badge
-    on this card means its value should be the CURRENT fleet state, not
-    reactive to the Topbar's 24h/7d/30d filter -- so it must show the SAME
-    value at 24h and at this range."""
+    """CONFIRMED FIXED 2026-10-01 (Qase Defect #64): per the dev's
+    clarification, the 'current' badge on this card means its value is the
+    CURRENT fleet state, not reactive to the Topbar's 24h/7d/30d filter --
+    so it must show the SAME value at 24h and at this range. Re-verified
+    live: no longer tracks the windowed query like Sites with Alarms does.
+    xfail removed."""
     grid = fleet_overview_page.status_grid()
     fleet_overview_page.select_time_range("Last 24 hours")
     fleet_overview_page.page.wait_for_timeout(1000)

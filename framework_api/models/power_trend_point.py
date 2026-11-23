@@ -1,6 +1,6 @@
 """Model for GET /api/monitoring/power-trend/{siteId} -- Site Power
-Telemetry/Import-Export Power's shared backing endpoint (docs/OF-143.txt,
-docs/GraficasMonitoring.md). Both charts read this same series; nothing
+Telemetry/Import-Export Power's shared backing endpoint (Jira story OF-143,
+the internal QA note 'GraficasMonitoring'). Both charts read this same series; nothing
 here is specific to one Trend Focus -- the frontend just picks which
 fields to plot.
 

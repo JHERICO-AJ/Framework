@@ -1,5 +1,5 @@
 """Selectors for the Dispatch Limits & Tracking card (Data & Monitoring --
-docs/OF-145.txt): a 6-block dispatch/setpoint/DC-bus summary, not a table
+Jira story OF-145): a 6-block dispatch/setpoint/DC-bus summary, not a table
 or chart.
 
 Confirmed against the real deployed app (2026-09-10). `.card` is reused

@@ -1,5 +1,5 @@
 """PcsEnergyStatistics -- reusable component: the 2-block period-energy
-summary on Data & Monitoring (docs/OF-150.txt)."""
+summary on Data & Monitoring (Jira story OF-150)."""
 from __future__ import annotations
 
 from framework_ui.base.base_component import BaseComponent

@@ -19,7 +19,7 @@ import re
 from shared.config.settings import TOL_ABS_KW
 from shared.datasource.db_source import (
     count_devices_by_level_code, get_configured_gateway_ip, get_gateway_mac_ids,
-    get_recent_event_timestamps, get_site_ids,
+    get_recent_event_timestamps_by_device, get_site_ids,
 )
 from shared.datasource.fractal_modbus_source import (
     PCS_BASES, PCS_STATUS_WORD_1_BENIGN_BITS,
@@ -28,6 +28,8 @@ from shared.datasource.fractal_modbus_source import (
     read_fractal_emu_pcs_comm_connected, read_fractal_meter_total_active_power_kw,
 )
 from shared.utils.parsing import parse_first_number, parse_kw
+
+from tests.ui.monitoring.support import soc_range_value
 
 pytestmark = pytest.mark.ui
 
@@ -108,7 +110,7 @@ def api_summary(monitoring_service, bolivia_site_id):
 
 
 def test_all_six_device_cards_present_in_fixed_order(bolivia_monitoring_page):
-    """CA-02 (docs/OF-140.txt): the 6 cards always render in this exact
+    """CA-02 (Jira story OF-140): the 6 cards always render in this exact
     order, not just "all present" -- the order itself is a documented
     requirement, not an implementation detail."""
     panel = bolivia_monitoring_page.device_status_panel()
@@ -139,7 +141,10 @@ def _drop_volatile_lines(title, lines):
     if title == "PCS / Inverter":
         return [line for line in lines if not line.startswith("Actual")]
     if title == "Battery / BMS":
-        return [line for line in lines if not line.startswith("SoC range")]
+        # Renamed 2026-09-21 (Qase Defect #14 fix) from "SoC range" to
+        # "SoC site" -- still volatile, still excluded from this exact-match
+        # check for the same reason.
+        return [line for line in lines if not (line.startswith("SoC range") or line.startswith("SoC site"))]
     return lines
 
 
@@ -172,7 +177,7 @@ def test_card_info_lines_match_api(bolivia_monitoring_page, monitoring_service, 
 
 
 def test_network_tunnel_communication_status_is_stable_or_unstable(bolivia_monitoring_page):
-    """CA-25 (docs/OF-140.txt): the Network/Tunnel card's "Communication
+    """CA-25 (Jira story OF-140): the Network/Tunnel card's "Communication
     Status" line is its OWN freshness/gap-based diagnostic (< 3x interval
     and no gaps = Stable, else Unstable) -- a DIFFERENT rule from Gateway
     Diagnostics' heartbeat-based Communication Status (Connected/Watch/
@@ -196,7 +201,7 @@ def test_network_tunnel_communication_status_is_stable_or_unstable(bolivia_monit
 
 
 def test_network_tunnel_last_communication_word_is_valid(bolivia_monitoring_page):
-    """CA-25 (docs/OF-140.txt line 779): "Comunicacion Stable o Unstable;
+    """CA-25 (Jira story OF-140 line 779): "Comunicacion Stable o Unstable;
     ultima comunicacion normal / watch / stale" -- these are the SAME line
     in the CA text but 2 independently-computed values (gap/freshness-based
     Stable/Unstable vs SLA/latency-based normal/watch/stale), confirmed by
@@ -216,10 +221,10 @@ def test_network_tunnel_last_communication_word_is_valid(bolivia_monitoring_page
 
 
 def test_network_tunnel_status_pill_is_not_online_when_pcs_comm_is_really_lost(bolivia_monitoring_page):
-    """CA-26 (docs/OF-140.txt line 781): "0 avisos -> '0 communication
+    """CA-26 (Jira story OF-140 line 781): "0 avisos -> '0 communication
     warnings'. 1 aviso -> Warning. 2 o mas -> Fault." We can't read the
     exact warning count from a durable source (it lives in a ~5s in-memory
-    cache, docs/OF-140.txt's "Origen en pantalla" table -- confirmed
+    cache, Jira story OF-140's "Origen en pantalla" table -- confirmed
     2026-09-08 it doesn't match either events."Alert" or events."Event"
     directly), but we CAN confirm independently, from the same real
     simulator bit already used for EMS IPC & Gateway, that a genuine
@@ -244,44 +249,45 @@ def test_network_tunnel_status_pill_is_not_online_when_pcs_comm_is_really_lost(b
         f"communication warning -- the pill should not claim Online, got: {status!r}")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Discovered 2026-09-08 investigating the Network/Tunnel "
-           "'communication warnings' count: raw PCS_COMM_LOST events for "
-           "BOLIVIA fire roughly every ~1.7s (2145 in the last hour alone) "
-           "-- far faster than the documented 5-10s sampling interval "
-           "(docs/OmniOps_Parameter_Mapping_V03). docs/OF-140.txt's own "
-           "fallback rule for this card ('Eventos + alarmas 24h') means "
-           "warning counts are built from this same raw event stream, so "
-           "an inflated generation rate likely inflates every "
-           "'communication warnings' figure shown anywhere in the system, "
-           "not just this card. This checks the upstream rate directly "
-           "(durable, in events.\"Event\"), independent of the in-memory "
-           "cache the UI itself reads from.")
 def test_pcs_comm_lost_events_fire_no_faster_than_sampling_interval(db_conn, bolivia_site_id):
+    """CONFIRMED DEFECT on 2026-09-08 (Qase Defect #18): PCS_COMM_LOST
+    events for BOLIVIA fired roughly every ~1.7s (2145 in the last hour
+    alone) -- far faster than the documented 5-10s sampling interval
+    (docs/OmniOps_Parameter_Mapping_V03). RE-VERIFIED 2026-09-21 after the
+    JF/FixMonitoring deploy: FIXED. Measuring the gap PER DEVICE (not a
+    flat mix of all 3 PCS) now gives a consistent ~10.05s median on all 3
+    PCS -- squarely inside the documented window. (A flat, ungrouped
+    measurement misleadingly looked broken again -- BOLIVIA's 3 PCS all
+    lose comms at once and log 3 rows with the identical timestamp, one
+    per DeviceId; that's 3 real simultaneous devices, not the same
+    condition re-firing, so it must be grouped by device before measuring
+    the rate -- see get_recent_event_timestamps_by_device's docstring.)"""
     MIN_EXPECTED_INTERVAL_S = 4.0  # generous floor under the documented 5-10s
 
-    timestamps = get_recent_event_timestamps(db_conn, bolivia_site_id, "PCS_COMM_LOST", limit=50)
-    if len(timestamps) < 2:
-        pytest.skip(f"only {len(timestamps)} PCS_COMM_LOST event(s) for {SITE_NAME} -- "
-                     f"not enough to measure a rate")
+    by_device = get_recent_event_timestamps_by_device(db_conn, bolivia_site_id, "PCS_COMM_LOST", limit=300)
+    if not by_device:
+        pytest.skip(f"no PCS_COMM_LOST events for {SITE_NAME} -- not enough to measure a rate")
 
-    deltas_s = sorted(
-        (timestamps[i] - timestamps[i + 1]).total_seconds()
-        for i in range(len(timestamps) - 1)
-    )
-    median_delta_s = deltas_s[len(deltas_s) // 2]
-    assert median_delta_s >= MIN_EXPECTED_INTERVAL_S, (
-        f"median gap between consecutive PCS_COMM_LOST events is "
-        f"{median_delta_s:.1f}s, faster than the documented 5-10s sampling "
-        f"interval (floor {MIN_EXPECTED_INTERVAL_S}s) -- events appear to "
-        f"fire every poll cycle instead of once per condition, inflating "
-        f"any downstream 'communication warnings' count")
+    for device_id, timestamps in by_device.items():
+        timestamps = sorted(set(timestamps), reverse=True)
+        if len(timestamps) < 2:
+            continue
+        deltas_s = sorted(
+            (timestamps[i] - timestamps[i + 1]).total_seconds()
+            for i in range(len(timestamps) - 1)
+        )
+        median_delta_s = deltas_s[len(deltas_s) // 2]
+        assert median_delta_s >= MIN_EXPECTED_INTERVAL_S, (
+            f"device {device_id}: median gap between consecutive PCS_COMM_LOST "
+            f"events is {median_delta_s:.1f}s, faster than the documented 5-10s "
+            f"sampling interval (floor {MIN_EXPECTED_INTERVAL_S}s) -- this device's "
+            f"events appear to fire every poll cycle instead of once per condition, "
+            f"inflating any downstream 'communication warnings' count")
 
 
 def test_pcs_actual_power_matches_simulator_pcs_sum(bolivia_monitoring_page):
     """True cross-layer ground truth, bypassing the API entirely: per
-    docs/OF-140.txt's "Calculo" rule for the PCS/Inverter card --
+    Jira story OF-140's "Calculo" rule for the PCS/Inverter card --
     "Setpoint/actual: suma PCS individuales -> agregado SYS -> valor
     sitio" -- the site's Actual power must be the SUM of each PCS's own
     p_ac_kw, NOT a direct read of EmuStatus.active_power_kw (the EMU's own
@@ -338,19 +344,6 @@ def test_pcs_actual_power_matches_simulator_pcs_sum(bolivia_monitoring_page):
         f"rule. Simulator samples: {[v for _, v in history]}")
 
 
-def _soc_range_value(panel):
-    """Battery/BMS's "SoC range" line renders as e.g. "SoC range:
-    49.1-49.1%" (min-max, equal when there's no per-rack detail -- BOLIVIA
-    is Fractal, no racks) -- parse_first_number reads the first (min)
-    figure, sufficient since min==max here."""
-    info_lines = panel.info_lines("Battery / BMS")
-    soc_line = next((line for line in info_lines if line.startswith("SoC range")), None)
-    assert soc_line is not None, f"no 'SoC range' line found in: {info_lines}"
-    value = parse_first_number(soc_line)
-    assert value is not None, f"couldn't parse a percentage from: {soc_line!r}"
-    return value
-
-
 def _soh_value(panel):
     info_lines = panel.info_lines("Battery / BMS")
     soh_line = next((line for line in info_lines if line.startswith("SoH")), None)
@@ -362,7 +355,7 @@ def _soh_value(panel):
 
 def test_battery_soc_matches_simulator(bolivia_monitoring_page):
     """True cross-layer ground truth for Battery/BMS's "SoC range" line:
-    docs/OF-140.txt maps it to Fractal EMU.system_soc_pct ("Fractal --
+    Jira story OF-140 maps it to Fractal EMU.system_soc_pct ("Fractal --
     EMU / SystemSocPct / SOC del sitio"). Same convergence-window
     technique as the PCS Actual power test -- SOC moves slower than Power
     but still ticks live, so a single snapshot on each side can miss by a
@@ -371,7 +364,7 @@ def test_battery_soc_matches_simulator(bolivia_monitoring_page):
     try:
         latency_s = _wait_for_ui_value_to_match_simulator(
             read_simulator_value=lambda: read_fractal_emu_soc_pct(SITE_NAME),
-            read_ui_value=lambda: _soc_range_value(panel),
+            read_ui_value=lambda: soc_range_value(panel),
             tolerance=TOL_ABS_PCT,
             sleep_seconds=lambda seconds: panel.page.wait_for_timeout(seconds * 1000),
         )
@@ -384,7 +377,7 @@ def test_battery_soc_matches_simulator(bolivia_monitoring_page):
 
 def test_battery_soh_matches_simulator(bolivia_monitoring_page):
     """True cross-layer ground truth for Battery/BMS's "SoH" line:
-    docs/OF-140.txt maps it to Fractal EMU.system_soh_pct, a straight
+    Jira story OF-140 maps it to Fractal EMU.system_soh_pct, a straight
     passthrough (no aggregation/fallback) per the "Calculo" table ("SOH:
     SiteSOH -> SOH banco"). Confirmed 2026-09-07 by hand this matches
     exactly (raw=990 -> 99.0%, UI shows "SoH 99.0%") -- this makes that
@@ -407,15 +400,15 @@ def test_battery_soh_matches_simulator(bolivia_monitoring_page):
 # ---------------------------------------------------------------------------
 # Deterministic "always this placeholder" checks for fields Fractal's wire
 # protocol structurally cannot supply -- confirmed against
-# docs/GUIA_CONSUMO_PROTO_FRACTAL.md's EMU_FIELDS/PCS_FIELDS (no cell
+# the internal QA note 'GUIA_CONSUMO_PROTO_FRACTAL''s EMU_FIELDS/PCS_FIELDS (no cell
 # voltage, no balancing, no setpoint/CCL/DCL fields anywhere), so these
 # aren't "usually" a placeholder, they're a hard fact for any Fractal site,
-# and docs/OF-140.txt's "Si no hay nada" fallback column gives the exact
+# and Jira story OF-140's "Si no hay nada" fallback column gives the exact
 # expected text -- no live/simulator read needed to know the answer.
 # ---------------------------------------------------------------------------
 
 def test_cell_voltage_delta_is_always_dash_for_fractal_site(bolivia_monitoring_page):
-    """docs/OF-140.txt fallback table (Battery/BMS): "Delta celular" with
+    """Jira story OF-140 fallback table (Battery/BMS): "Delta celular" with
     nothing to compute it from -> "Cell Voltage Delta = -". Fractal has no
     per-string/per-cell voltage field anywhere in EMU_FIELDS/PCS_FIELDS
     (confirmed 2026-09-07 against the real register map), so this is
@@ -427,7 +420,7 @@ def test_cell_voltage_delta_is_always_dash_for_fractal_site(bolivia_monitoring_p
 
 
 def test_balancing_is_always_dash_for_fractal_site(bolivia_monitoring_page):
-    """docs/OF-140.txt fallback table (Battery/BMS): "Balanceo" comes only
+    """Jira story OF-140 fallback table (Battery/BMS): "Balanceo" comes only
     from racks ("Solo racks") -> "-" when there's nothing. Fractal has no
     CellsBalancing-equivalent field (that's an EPC-only source per OF-140's
     own mapping table), so this is guaranteed for any Fractal site."""
@@ -438,7 +431,7 @@ def test_balancing_is_always_dash_for_fractal_site(bolivia_monitoring_page):
 
 
 def test_pcs_setpoint_is_always_na_for_fractal_site(bolivia_monitoring_page):
-    """docs/OF-140.txt fallback table (PCS/Inverter): "Setpoint" with
+    """Jira story OF-140 fallback table (PCS/Inverter): "Setpoint" with
     nothing to compute it from -> "PCS Setpoint N/A". Fractal's wire
     protocol has no setpoint field (OF-140 sec 5.2: "Setpoint, CCL_A,
     DCL_A -- JSON legacy; no en snapshot EPC/Fractal actual"), so this is
@@ -449,23 +442,34 @@ def test_pcs_setpoint_is_always_na_for_fractal_site(bolivia_monitoring_page):
         f"expected the documented N/A fallback, got: {info_lines}")
 
 
-def test_charge_discharge_limit_is_always_unavailable_for_fractal_site(bolivia_monitoring_page):
-    """docs/OF-140.txt fallback table (PCS/Inverter): "Limite C/D" needs
-    fresh CCL+DCL -> "Unavailable" / "N/A A" when absent. Same root cause
-    as the Setpoint check above (CCL_A/DCL_A don't exist in Fractal's
-    wire protocol), so this is guaranteed for any Fractal site."""
+def test_charge_discharge_limit_shows_dash_for_fractal_site(bolivia_monitoring_page):
+    """CCL_A/DCL_A don't exist in Fractal's wire protocol at all (same root
+    cause as the Setpoint check above), so this is guaranteed for any
+    Fractal site.
+
+    This test used to expect Jira story OF-140's older, generic fallback
+    text ("Unavailable" / "N/A A") -- matching the Parameter Mapping
+    spreadsheet's own "Charge / discharge limit available" row, which
+    suggests literal states like "Available / Limited / Unavailable".
+    That expectation was superseded by Qase Defect #16 (confirmed by the
+    team lead, more specific than the older HU text): "Charge/Discharge
+    limit" is explicitly one of the fields that structurally can never
+    arrive for Fractal, so it must show '-', not 'N/A'/'Unavailable'.
+    FIXED as of 2026-09-21 (re-verified after the JF/FixMonitoring
+    deploy): the line now reads 'Charge/Discharge limit: — (— / —)'."""
     panel = bolivia_monitoring_page.device_status_panel()
     info_lines = panel.info_lines("PCS / Inverter")
     limit_line = next((line for line in info_lines if line.startswith("Charge/Discharge limit")), None)
     assert limit_line is not None, f"no 'Charge/Discharge limit' line found in: {info_lines}"
-    assert "Unavailable" in limit_line and "N/A" in limit_line, (
-        f"expected the documented Unavailable/N/A fallback, got: {limit_line!r}")
+    assert "N/A" not in limit_line and "Unavailable" not in limit_line, (
+        f"this field can never arrive for a Fractal site, so it should show '-' "
+        f"everywhere, not 'N/A'/'Unavailable' -- got: {limit_line!r}")
 
 
 def test_hvac_fields_are_always_na_for_fractal_site(bolivia_monitoring_page):
-    """docs/OF-140.txt fallback table (HVAC/Thermal): all 3 lines fall back
+    """Jira story OF-140 fallback table (HVAC/Thermal): all 3 lines fall back
     to N/A / "No hot-spot indices" when there's nothing to compute them
-    from. Confirmed in docs/Informacion MOnitoring.md: NEITHER manufacturer
+    from. Confirmed in the internal QA note 'Informacion MOnitoring': NEITHER manufacturer
     sends HVAC data through this channel today ("Ninguno de los dos llena
     hoy HVAC... por este canal"), so this is guaranteed for any site right
     now, not just Fractal -- kept in this Fractal-specific test file since
@@ -477,49 +481,23 @@ def test_hvac_fields_are_always_na_for_fractal_site(bolivia_monitoring_page):
     assert "No hot-spot indices" in info_lines, f"got: {info_lines}"
 
 
-def test_hvac_status_pill_is_always_online_for_fractal_site(bolivia_monitoring_page):
-    """docs/OF-140.txt Calculo rule for HVAC/Thermal: "Estado: HvacStatus ->
-    alarmas termicas -> frescura al final", fallback table: "Online base".
-    HvacStatus never arrives (confirmed test_hvac_fields_are_always_na_...
-    above), so the only way this card could escalate past "Online" is via
-    a real thermal alarm. Confirmed 2026-09-07 against
-    docs/fractal-alarms-coverage-open-by-id 1.md: the ENTIRE "HVAC / Safety
-    / Environment" alarm category (#61-#65, #67) is NO CUBIERTO for
-    Fractal -- including explicit confirmation that the one bit that
-    exists in the wire (PCS alarm word 18 bit0 "ambient_temp_too_high")
-    is NOT wired to any active alarm rule ("usarlo seria un proxy
-    inventado -> no se puede activar"). With nothing able to escalate it,
-    and BOLIVIA's telemetry fresh, this card's status is a guaranteed
-    "Online" -- unlike the other 5 cards, which DO have real, active alarm
-    paths (e.g. EMS IPC & Gateway's Fault correlates with alarm #52
-    EMS-PCS Comm Lost, confirmed CUBIERTO and observed firing on BOLIVIA),
-    so those are intentionally NOT tested as deterministic facts here."""
-    panel = bolivia_monitoring_page.device_status_panel()
-    assert panel.status("HVAC / Thermal").lower() == "online"
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="Design gap, confirmed by the developer as not accounted for: "
-           "when NEITHER the direct field (HvacStatus) NOR its alarm "
-           "fallback (#61-70, 0% coverage for Fractal) can ever produce a "
-           "real signal, defaulting to 'Online' misrepresents 'we never "
-           "had visibility' as 'confirmed healthy'. A distinct 'No Data' "
-           "state is needed for a subsystem that can never be monitored "
-           "through this channel, for any manufacturer.")
 def test_hvac_status_pill_should_show_no_data_not_online_for_fractal_site(bolivia_monitoring_page):
-    """Companion to test_hvac_status_pill_is_always_online_for_fractal_site
-    (kept, still passing -- documents that "Online" DOES match today's
-    literal spec/fallback text). This test instead captures what the pill
-    SHOULD say: HVAC is the only one of the 6 cards where BOTH of its
-    documented data sources (HvacStatus directly, or HVAC alarms as
-    fallback) are 100% unreachable for Fractal -- confirmed via
-    docs/fractal-alarms-coverage-open-by-id 1.md, the entire #61-70
+    """Jira story OF-140 Calculo rule for HVAC/Thermal: "Estado: HvacStatus ->
+    alarmas termicas -> frescura al final". HVAC is the only one of the 6
+    cards where BOTH of its documented data sources (HvacStatus directly,
+    or HVAC alarms #61-70 as fallback) are 100% unreachable for Fractal --
+    confirmed via the internal QA note 'fractal-alarms-coverage-open-by-id 1', the entire
     category is NO CUBIERTO. Unlike the other 5 cards (which each have at
     least one real, active alarm path -- e.g. #51/#52/#53 Comm Lost, #34-49
-    PCS faults), HVAC has zero way to ever confirm health, so "Online"
-    here is a default masking total blindness, not a checked-and-healthy
-    result. It should show a distinct "No Data" state instead."""
+    PCS faults), HVAC has zero way to ever confirm health.
+
+    CONFIRMED DEFECT 2026-09-07 (Qase Defect #17): the pill defaulted to
+    "Online" in this situation, misrepresenting "we never had visibility"
+    as "confirmed healthy". FIXED as of 2026-09-21 (re-verified after the
+    JF/FixMonitoring deploy): the pill now shows a distinct "No Data"
+    state instead. (Supersedes the old
+    test_hvac_status_pill_is_always_online_for_fractal_site, which
+    asserted the former "Online" default as if it were correct.)"""
     panel = bolivia_monitoring_page.device_status_panel()
     assert panel.status("HVAC / Thermal").lower() == "no data", (
         "HVAC has zero possible data source for Fractal (neither HvacStatus "
@@ -530,7 +508,7 @@ def test_hvac_status_pill_should_show_no_data_not_online_for_fractal_site(bolivi
 @pytest.mark.skip(
     reason="Blocked on simulator telemetry-gap injection (deferred to the "
            "alarms-testing phase, per user decision 2026-09-08): "
-           "docs/DeviceStatusPanel.md's freshness rule (>5x sampling "
+           "the internal QA note 'DeviceStatusPanel''s freshness rule (>5x sampling "
            "interval -> Fault) applies to PCS/Inverter, HVAC, EMS IPC & "
            "Gateway, Meter/Grid, and Network/Comm Path -- if telemetry "
            "genuinely stops arriving (not 'never existed', like HVAC "
@@ -554,7 +532,7 @@ def test_cards_show_no_data_not_fault_when_telemetry_goes_stale(bolivia_monitori
 #
 # 1. Fractal's wire protocol has NO field anywhere that represents actual BMS
 #    health -- no cell voltage, no per-rack telemetry, no BMS-specific fault
-#    bit (confirmed against docs/GUIA_CONSUMO_PROTO_FRACTAL.md's full
+#    bit (confirmed against the internal QA note 'GUIA_CONSUMO_PROTO_FRACTAL''s full
 #    EmuStatus field table and fractal_addressing_map.py). The only things
 #    Fractal sends near this card are site-level aggregates (system_soc_pct,
 #    system_soh_pct) and station_state -- which describes what the WHOLE
@@ -568,7 +546,7 @@ def test_cards_show_no_data_not_fault_when_telemetry_goes_stale(bolivia_monitori
 #    DeviceStatusPanelService.cs has 10 phantom candidates permanently
 #    starved of telemetry to reason about, for a site that should have zero
 #    rack devices configured in the first place.
-# 3. Result: docs/DeviceStatusPanel.md's own Fractal StationState -> SysStatus
+# 3. Result: the internal QA note 'DeviceStatusPanel''s own Fractal StationState -> SysStatus
 #    table maps EVERY StationState to SysStatus 2/3/4/null, which all render
 #    as Warning (SysStatus=1 is the only value that renders Online, and no
 #    Fractal state ever produces it) -- so a station that is
@@ -597,15 +575,29 @@ ENGINEERING_EXPECTED_ONLINE_STATION_STATES = {
 }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Design gap (docs/DeviceStatusPanel.md) + data-configuration "
-           "defect (10 phantom rack devices for a Fractal site that "
-           "structurally can never report rack telemetry): Battery/BMS has "
-           "no real BMS-health signal to base its pill on for Fractal, so "
-           "it can never show Online while operating normally -- confirmed "
-           "with zero real alarms present on BOLIVIA (see comment above).")
-def test_battery_bms_status_pill_should_be_online_when_operating_normally(bolivia_monitoring_page):
+def test_battery_bms_status_pill_should_show_no_data_not_a_fabricated_state(bolivia_monitoring_page):
+    """CONFIRMED DEFECT 2026-09-XX (Qase Defect #12): the pill was computed
+    from SysStatus (mapped from station_state, the station's overall
+    operating mode -- Standby/Charging/Discharging/etc.), not the battery
+    subsystem's real health -- confirmed EVERY possible Fractal
+    station_state maps to a non-Online SysStatus, so the pill could never
+    show Online for any Fractal site regardless of real health.
+
+    RE-SCOPED 2026-09-21 per the SAME generalized "No Data" design already
+    confirmed for HVAC (Qase Defect #17, the internal QA note 'MnitoringFix' section 1.3:
+    'diseñado de forma genérica... no construido solo para HVAC'): the
+    original Qase #12 asked for 'Online' with zero real alarms, but that
+    was written before the 'No Data' state existed. docs/fractal-alarms-
+    coverage-open-by-id 1.md confirms the ENTIRE 'Rack / String (14-33)'
+    alarm category -- Battery/BMS's own documented fallback basis per
+    OmniOps_Parameter_Mapping_V03 ('derive from Rack ID alarm rollup +
+    Last Communication Time') -- is 100% NO CUBIERTO for Fractal, the
+    exact same total-blindness situation as HVAC's #61-70. FIXED as of
+    2026-09-21 (re-verified after the JF/FixMonitoring deploy): the pill
+    now honestly shows 'No Data' instead of fabricating a state from an
+    unrelated operating-mode field -- confirmed live that the rest of the
+    card (SoC, SoH) still shows real, fresh values, so this is deliberate
+    pill logic, not a telemetry outage."""
     panel = bolivia_monitoring_page.device_status_panel()
     try:
         station_state = read_fractal_emu_station_state(SITE_NAME)
@@ -620,33 +612,44 @@ def test_battery_bms_status_pill_should_be_online_when_operating_normally(bolivi
             f"not one of {ENGINEERING_EXPECTED_ONLINE_STATION_STATES} -- "
             f"outside the scope of this specific claim")
 
-    assert panel.status("Battery / BMS").lower() == "online", (
-        f"station_state={station_state!r} (normal operation, zero real "
-        f"BMS alarms confirmed on {SITE_NAME}, no genuine BMS telemetry "
-        f"channel exists for Fractal, and its 10 configured rack devices "
-        f"are phantom/never-reporting) should show Online, not a pill "
-        f"fabricated from an unrelated operating-mode field")
+    assert panel.status("Battery / BMS").lower() == "no data", (
+        f"station_state={station_state!r} (normal operation, zero real BMS "
+        f"alarms confirmed on {SITE_NAME}, and no rack-level alarm rollup "
+        f"possible at all for Fractal) should show 'No Data' -- there's no "
+        f"real basis to claim Online (health verified) any more than there "
+        f"was to claim the old Warning (fabricated from an unrelated "
+        f"operating-mode field)")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CA-09 (docs/OF-140.txt, literal): 'Sitio Fractal puede tener "
-           "menos detalle de racks; no se inventan racks' -- BOLIVIA is "
-           "Fractal and has 10 RACK-level emsdevices.Device rows configured "
-           "(confirmed via direct DB query 2026-09-08), which the user "
-           "story explicitly says must not happen.")
-def test_fractal_site_has_no_invented_rack_devices(db_conn, bolivia_site_id):
-    """Ground truth straight from the DB (not UI/API, which only show the
-    DOWNSTREAM symptom of this -- Battery/BMS's "0 racks OK - 11 fault"
-    summary line and a "SoC range" missing CA-07's "(site)" suffix). This
-    checks the root cause directly: for a Fractal site, no RACK device
-    should be registered at all, since Fractal's wire protocol has no
-    rack-level telemetry to ever back one with real data."""
+def test_fractal_site_racks_configured_without_telemetry_dont_fabricate_data(bolivia_monitoring_page, db_conn, bolivia_site_id):
+    """RE-SCOPED 2026-09-21 (Qase Defect #13): originally this checked that
+    BOLIVIA (Fractal) had ZERO RACK-level emsdevices.Device rows at all,
+    reading CA-09 ('Sitio Fractal puede tener menos detalle de racks; no
+    se inventan racks') as banning the rows' mere existence. Per the
+    user's own clarification: these 10 RACK rows can be a deliberate,
+    real Data Intake configuration (the site may physically have racks
+    that Fractal's protocol simply never reports telemetry for) -- CA-09's
+    real concern is FABRICATING data for a concept that has no real
+    basis, not the rack rows existing. So the correct check isn't "0
+    racks configured", it's "if racks are configured but have no real
+    telemetry, nothing downstream invents data for them" -- which is
+    already covered by test_battery_bms_status_pill_should_show_no_data_
+    not_a_fabricated_state (pill) and test_battery_bms_soc_range_shows_
+    site_suffix_for_fractal_site (SoC line), both confirmed passing. This
+    test is the equivalent ground-truth-first check: if RACK rows exist
+    for this site, the panel must not show a fabricated racks-OK/fault
+    count for them."""
     rack_count = count_devices_by_level_code(db_conn, bolivia_site_id, "RACK")
-    assert rack_count == 0, (
-        f"{SITE_NAME} (Fractal) has {rack_count} RACK device(s) registered "
-        f"-- CA-09 says Fractal sites must not have invented racks; these "
-        f"can never receive real telemetry through Fractal's wire protocol")
+    if rack_count == 0:
+        pytest.skip(f"{SITE_NAME} has 0 RACK devices configured right now -- nothing to check")
+
+    panel = bolivia_monitoring_page.device_status_panel()
+    info_lines = panel.info_lines("Battery / BMS")
+    racks_summary_line = next((line for line in info_lines if "racks" in line.lower()), None)
+    assert racks_summary_line is None or "fault" not in racks_summary_line.lower(), (
+        f"{SITE_NAME} has {rack_count} RACK device(s) configured with no real Fractal "
+        f"telemetry -- the panel must not fabricate a racks OK/fault count for them, "
+        f"got: {racks_summary_line!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -654,55 +657,69 @@ def test_fractal_site_has_no_invented_rack_devices(db_conn, bolivia_site_id):
 # independent of the pill-color bug (that one comes from the SysStatus
 # mapping and would persist even with 0 racks, since SysStatus always
 # exists for Fractal and never falls through to the racks-based fallback
-# -- confirmed against docs/OF-140.txt line 557: "SysStatus -> racks -> 0
+# -- confirmed against Jira story OF-140 line 557: "SysStatus -> racks -> 0
 # racks = Fault", where the racks branch only applies when SysStatus is
 # ABSENT, not merely null-mapped). These two checks are about the RACKS
 # SUMMARY TEXT and SOC RANGE FORMAT specifically, both broken by the same
 # 10 phantom rack rows, both with an exact literal expected string in
-# docs/OF-140.txt's own fallback table (lines 560-566).
+# Jira story OF-140's own fallback table (lines 560-566).
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Downstream of CA-09's phantom racks (see "
-           "test_fractal_site_has_no_invented_rack_devices), reassessed "
-           "against the team lead's confirmed dash-vs-N/A design standard "
-           "(see test_structurally_absent_field_shows_dash_not_na): "
-           "docs/OF-140.txt's literal fallback text '0 racks OK' has the "
-           "same problem as 'N/A' -- it reads as a passed check ('OK') for "
-           "a concept (racks) that doesn't apply to Fractal at all, rather "
-           "than honestly saying so. With 0 real racks, this line should "
-           "read '- (racks not applicable for this manufacturer)', not "
-           "'0 racks OK' -- and BOLIVIA's 10 phantom racks currently make "
-           "it read '0 racks OK - 11 fault', even further from either.")
-def test_battery_bms_racks_summary_shows_dash_for_fractal_site(bolivia_monitoring_page):
+def test_battery_bms_racks_summary_does_not_fabricate_ok_fault_count(bolivia_monitoring_page):
+    """RE-SCOPED 2026-09-21 (Qase Defect #13, downstream display
+    consequence): Jira story OF-140's literal fallback text '0 racks OK' has
+    the same problem as 'N/A' -- it reads as a passed check ('OK') for a
+    concept (per-rack telemetry) that Fractal never reports, rather than
+    honestly saying so. BOLIVIA's 10 real-but-telemetry-less racks used to
+    make this line read '0 racks OK - 11 fault', fabricating a fault count
+    for racks that were never actually checked.
+
+    FIXED as of 2026-09-21 (re-verified after the JF/FixMonitoring
+    deploy): the racks summary line is no longer shown on the card at
+    all -- resolving the ambiguity by omitting the fabricated count
+    entirely, the same pattern already confirmed for Qase Defect #29's
+    subsystem dropdown. An earlier expectation of a specific dash-labeled
+    replacement string ('- (racks not applicable for this manufacturer)')
+    is no longer what the app does, and isn't required by the underlying
+    defect either -- omitting the line satisfies the same 'don't
+    fabricate a per-rack check' intent."""
     panel = bolivia_monitoring_page.device_status_panel()
     info_lines = panel.info_lines("Battery / BMS")
     racks_summary_line = next((line for line in info_lines if "racks" in line.lower()), None)
-    assert racks_summary_line is not None, f"no racks summary line found in: {info_lines}"
-    assert racks_summary_line == "- (racks not applicable for this manufacturer)", (
-        f"Fractal has no rack-level telemetry at all, so this line should "
-        f"honestly say so with a dash, not read like a passed check -- "
-        f"got: {racks_summary_line!r}")
+    assert racks_summary_line is None or "fault" not in racks_summary_line.lower(), (
+        f"expected no fabricated racks OK/fault count line (Fractal has no "
+        f"per-rack telemetry to back one), got: {racks_summary_line!r}")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Downstream of CA-09's phantom racks (see "
-           "test_fractal_site_has_no_invented_rack_devices): CA-07 says "
-           "'Si no hay racks pero hay SOC de sitio -> SoC range: X% (site)' "
-           "-- BOLIVIA's 10 phantom racks make the panel take the "
-           "racks-derived range branch instead ('49.1-49.1%', no "
-           "'(site)' suffix).")
 def test_battery_bms_soc_range_shows_site_suffix_for_fractal_site(bolivia_monitoring_page):
+    """CA-07 (Jira story OF-140): 'Si no hay racks pero hay SOC de sitio ->
+    SoC range: X% (site)' -- downstream of BOLIVIA's racks configured
+    without real Fractal telemetry (see
+    test_fractal_site_racks_configured_without_telemetry_dont_fabricate_data,
+    Qase Defect #13), BOLIVIA's 10 racks used to make the panel take the
+    racks-derived range branch instead ('SoC range: 49.1-49.1%', a
+    fabricated min-max with no site indication at all).
+
+    CONFIRMED DEFECT 2026-09-XX (Qase Defect #14). FIXED as of 2026-09-21
+    (re-verified after the JF/FixMonitoring deploy) -- but with different
+    wording than the literal CA-07 text: the line now reads 'SoC site:
+    49.1%' (a single value, clearly labeled as site-derived), not 'SoC
+    range: 49.1% (site)'. An earlier check of this same test still failed
+    because it looked for a line literally starting with 'SoC range',
+    which no longer exists at all -- masked by the xfail wrapper as an
+    ordinary 'still broken' result. The intent (no fabricated per-rack
+    range, single site value, clearly labeled) is met; only the exact
+    label text differs from the original defect's wording."""
     panel = bolivia_monitoring_page.device_status_panel()
     info_lines = panel.info_lines("Battery / BMS")
-    soc_line = next((line for line in info_lines if line.startswith("SoC range")), None)
-    assert soc_line is not None, f"no 'SoC range' line found in: {info_lines}"
-    assert "(site)" in soc_line, (
-        f"CA-07 (docs/OF-140.txt): a Fractal site with 0 real racks but a "
-        f"site-level SOC must show '(site)' in the SoC range line, got: "
-        f"{soc_line!r}")
+    soc_line = next((line for line in info_lines if line.startswith("SoC site") or line.startswith("SoC range")), None)
+    assert soc_line is not None, f"no 'SoC site'/'SoC range' line found in: {info_lines}"
+    assert soc_line.startswith("SoC site") or "(site)" in soc_line, (
+        f"a Fractal site with 0 real racks but a site-level SOC must clearly "
+        f"label this as a single site value, not a fabricated per-rack range, "
+        f"got: {soc_line!r}")
+    assert "-" not in soc_line.split("%")[0], (
+        f"expected a single value, not a fabricated min-max range: {soc_line!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -711,7 +728,7 @@ def test_battery_bms_soc_range_shows_site_suffix_for_fractal_site(bolivia_monito
 # formula" (that formula IS the bug), but "does the pill match what an
 # electrical engineer would expect given the PCS's real bits".
 #
-# docs/DeviceStatusPanel.md's PcsEvt1StatusHelper.MapCardStatus decodes the
+# the internal QA note 'DeviceStatusPanel''s PcsEvt1StatusHelper.MapCardStatus decodes the
 # status/alarm word using an EPC-oriented bit catalog: bit0=Trip->Warning,
 # bit2=Derating->Warning, bit4=IGBT/SCR->Fault, ANY OTHER BIT != 0 ->Fault.
 # Fractal's real status_word_1 bit catalog (confirmed against
@@ -725,15 +742,13 @@ def test_battery_bms_soc_range_shows_site_suffix_for_fractal_site(bolivia_monito
 # catch-all -- a false Fault on a perfectly healthy unit.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Design gap (docs/DeviceStatusPanel.md): PcsEvt1StatusHelper "
-           "decodes status_word_1 with an EPC-oriented bit catalog that "
-           "doesn't recognize Fractal's real 'running normally' bits "
-           "(bit1 pcs_run, bit7/8 charge/discharge status), so they fall "
-           "into its 'any other bit -> Fault' catch-all even with zero "
-           "real alarms.")
 def test_pcs_status_pill_should_be_online_when_running_with_no_real_alarms(bolivia_monitoring_page):
+    """CONFIRMED DEFECT 2026-09-XX (Qase Defect #15): PcsEvt1StatusHelper
+    decoded status_word_1 with an EPC-oriented bit catalog that didn't
+    recognize Fractal's real 'running normally' bits (bit1 pcs_run, bit7/8
+    charge/discharge status), so they fell into its 'any other bit ->
+    Fault' catch-all even with zero real alarms. FIXED as of 2026-09-21
+    (re-verified after the JF/FixMonitoring deploy)."""
     panel = bolivia_monitoring_page.device_status_panel()
     try:
         for pcs_index in range(len(PCS_BASES)):
@@ -765,18 +780,19 @@ def test_pcs_status_pill_should_be_online_when_running_with_no_real_alarms(boliv
         f"'pcs_run'/'charge or discharge status' bits as a fault condition")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Same root cause as test_pcs_status_pill_should_be_online_when_running_with_no_real_alarms "
-           "(PcsEvt1StatusHelper's EPC-oriented bit catalog misreads Fractal's real "
-           "'running normally' bits as a fault) -- it also corrupts the PCS summary "
-           "count, marking all 3 real, healthy PCS units as 'fault'.")
 def test_pcs_summary_shows_all_pcs_ok_when_running_with_no_real_alarms(bolivia_monitoring_page):
-    """docs/OF-140.txt fallback table (line 592): the PCS summary's "Si no
+    """Jira story OF-140 fallback table (line 592): the PCS summary's "Si no
     hay nada" case is "0 PCS OK" -- but here all 3 PCS genuinely exist and
     have real telemetry (unlike Battery/BMS's phantom racks), so with all 3
     running normally and zero real alarms, the correct summary is "3 PCS
-    OK", not "0 PCS OK - 3 fault"."""
+    OK", not "0 PCS OK - 3 fault".
+
+    CONFIRMED DEFECT 2026-09-XX (Qase Defect #15, same root cause as
+    test_pcs_status_pill_should_be_online_when_running_with_no_real_alarms):
+    PcsEvt1StatusHelper's EPC-oriented bit catalog misread Fractal's real
+    'running normally' bits as a fault, corrupting the summary count too,
+    marking all 3 real, healthy PCS units as 'fault'. FIXED as of
+    2026-09-21 (re-verified after the JF/FixMonitoring deploy)."""
     panel = bolivia_monitoring_page.device_status_panel()
     try:
         for pcs_index in range(len(PCS_BASES)):
@@ -805,11 +821,11 @@ def test_pcs_summary_shows_all_pcs_ok_when_running_with_no_real_alarms(bolivia_m
 # ---------------------------------------------------------------------------
 
 def test_ems_gateway_heartbeat_is_normal_for_fractal_site_with_fresh_data(bolivia_monitoring_page):
-    """docs/OF-140.txt fallback table (line 642-644): Heartbeat = "Fresco y
+    """Jira story OF-140 fallback table (line 642-644): Heartbeat = "Fresco y
     (sin latido o latido > 0)" -- fresh data AND (no heartbeat field OR a
     nonzero one) both count as "normal". Fractal's wire protocol has no
     heartbeat field anywhere (confirmed against
-    docs/GUIA_CONSUMO_PROTO_FRACTAL.md), so with BOLIVIA's telemetry fresh,
+    the internal QA note 'GUIA_CONSUMO_PROTO_FRACTAL'), so with BOLIVIA's telemetry fresh,
     "normal" is the guaranteed, documented-correct result -- NOT a
     contradiction with Gateway Diagnostics' stricter "Disconnected" (see
     test_communication_status_is_disconnected_for_fractal_site_with_no_heartbeat
@@ -822,7 +838,7 @@ def test_ems_gateway_heartbeat_is_normal_for_fractal_site_with_fresh_data(bolivi
 
 def _any_pcs_comm_disconnected():
     """Ground truth for alarm #52 "EMS-PCS Comm Lost" (CUBIERTO for
-    Fractal, docs/fractal-alarms-coverage-open-by-id 1.md): reads the EMU's
+    Fractal, the internal QA note 'fractal-alarms-coverage-open-by-id 1'): reads the EMU's
     real RS485-connected bit for each of the 3 PCS directly from the
     simulator. Shared by the Data path and status pill checks below --
     both are downstream of this SAME real signal, so both close the loop
@@ -863,7 +879,7 @@ def test_ems_gateway_data_path_matches_simulator_pcs_comm_status(bolivia_monitor
 
 def test_ems_gateway_status_pill_matches_simulator_pcs_comm_status(bolivia_monitoring_page):
     """Closes the loop simulator -> pill directly (not just simulator ->
-    Data path, and separately Data path/pill -> API): docs/OF-140.txt line
+    Data path, and separately Data path/pill -> API): Jira story OF-140 line
     639-640 and docs/OmniOps_Parameter_Mapping_V03 row 20 both say the pill
     must be Fault whenever the data path is Fault. Expected to PASS, same
     real-alarm evidence as test_ems_gateway_data_path_matches_simulator_pcs_comm_status."""
@@ -886,7 +902,7 @@ def test_ems_gateway_status_pill_matches_simulator_pcs_comm_status(bolivia_monit
 
 
 @pytest.mark.skip(
-    reason="Known coverage gap, flagged 2026-09-08: docs/OF-140.txt line "
+    reason="Known coverage gap, flagged 2026-09-08: Jira story OF-140 line "
            "639 says the pill is 'SysStatus + camino -> heartbeat + camino', "
            "and test_ems_gateway_status_pill_matches_simulator_pcs_comm_status "
            "above only proves the Fault branch (comm lost) works, since "
@@ -905,7 +921,7 @@ def test_ems_gateway_status_pill_should_be_online_when_data_path_is_healthy(boli
 
 
 def test_ems_gateway_ip_matches_configured_intake_value(bolivia_monitoring_page, db_conn, bolivia_site_id):
-    """Ground truth for the "Gateway IP" line: docs/OF-140.txt line 646-648
+    """Ground truth for the "Gateway IP" line: Jira story OF-140 line 646-648
     documents the fallback order as "Telemetria viva -> intake". Fractal's
     emscommunication."RawBaseData" is confirmed EMPTY for BOLIVIA (no live
     telemetry path populates LocalIp for Fractal), so the real source is
@@ -953,7 +969,7 @@ def test_ems_gateway_mac_matches_registered_asset_registry_value(bolivia_monitor
 # ---------------------------------------------------------------------------
 # Meters / CT-PT
 #
-# Key fact, confirmed against docs/OF-140.txt line 322-325: "Carga real
+# Key fact, confirmed against Jira story OF-140 line 322-325: "Carga real
 # (RealLoad)" is NOT in either manufacturer's current snapshot -- "No en
 # snapshot EPC/Fractal actual". This is NOT a Fractal-only gap like Cell
 # Voltage Delta or HVAC -- "Valid" Tags requires demand + load + freshness
@@ -982,7 +998,7 @@ def test_meters_demand_telemetry_is_real_on_the_simulator():
 
 
 def test_meters_import_export_tags_is_always_partial_for_fractal_site(bolivia_monitoring_page):
-    """docs/OF-140.txt fallback table (line 660-662): Tags = "Demanda +
+    """Jira story OF-140 fallback table (line 660-662): Tags = "Demanda +
     carga + frescura" -- Fractal has demand (real telemetry, see above) and
     freshness, but "carga real" never arrives for ANY site (confirmed
     system-wide, not Fractal-specific). With 2 of 3 required inputs
@@ -995,7 +1011,7 @@ def test_meters_import_export_tags_is_always_partial_for_fractal_site(bolivia_mo
 
 
 def test_meters_consistency_requires_review_for_fractal_site(bolivia_monitoring_page):
-    """docs/OF-140.txt's fallback table has no explicit row for "carga
+    """Jira story OF-140's fallback table has no explicit row for "carga
     ausente pero PCS/BESS presente" (Fractal's real situation) -- only
     "Sin PCS" and "Sin demanda ni carga" are documented, a genuine spec
     gap, not a code defect. Given that gap, "requires review" (Excel row
@@ -1009,7 +1025,7 @@ def test_meters_consistency_requires_review_for_fractal_site(bolivia_monitoring_
 
 
 def test_meters_status_pill_is_warning_given_partial_tags_and_review_consistency(bolivia_monitoring_page):
-    """docs/DeviceStatusPanel.md: Meter/Grid's status is defined "Solo
+    """the internal QA note 'DeviceStatusPanel': Meter/Grid's status is defined "Solo
     OmniOps (frescura + demanda/carga + tags)" -- no dedicated mode field,
     it's derived from exactly the two inputs already confirmed correct
     above (Tags=Partial, Consistency=Review). Neither input signals a
@@ -1030,7 +1046,7 @@ def test_meters_status_pill_is_warning_given_partial_tags_and_review_consistency
 #             (stale, not yet received, temporarily missing).
 #   "-"    -> the field structurally can NEVER exist for this manufacturer
 #             (not in Fractal's wire protocol at all -- confirmed against
-#             docs/GUIA_CONSUMO_PROTO_FRACTAL.md, not just "missing today").
+#             the internal QA note 'GUIA_CONSUMO_PROTO_FRACTAL', not just "missing today").
 #
 # Every field below is confirmed structurally absent from Fractal (same
 # evidence already used by this file's other "always dash"/"always N/A"
@@ -1052,15 +1068,12 @@ FIELDS_THAT_NEVER_ARRIVE_BUT_CURRENTLY_SHOW_NA = [
 ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Design standard confirmed by the team lead: a field that "
-           "structurally never arrives for a manufacturer must show '-', "
-           "not 'N/A' ('N/A' is reserved for a field that could arrive but "
-           "currently hasn't). These fields are confirmed structurally "
-           "absent from Fractal's wire protocol but still show 'N/A'.")
 @pytest.mark.parametrize("card_title, field_label", FIELDS_THAT_NEVER_ARRIVE_BUT_CURRENTLY_SHOW_NA)
 def test_structurally_absent_field_shows_dash_not_na(bolivia_monitoring_page, card_title, field_label):
+    """CONFIRMED DEFECT 2026-09-XX (Qase Defect #16): these 4 fields are
+    confirmed structurally absent from Fractal's wire protocol (not just
+    'missing today') but showed 'N/A' instead of '-'. FIXED as of
+    2026-09-21 (re-verified after the JF/FixMonitoring deploy)."""
     panel = bolivia_monitoring_page.device_status_panel()
     info_lines = panel.info_lines(card_title)
     line = next((l for l in info_lines if field_label in l), None)

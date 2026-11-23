@@ -1,5 +1,5 @@
 """TelemetrySnapshotsModal — reusable component: the "Browse snapshots"
-modal opened from the Telemetry Data Table (docs/OF-141.txt CA-21..28)."""
+modal opened from the Telemetry Data Table (Jira story OF-141 CA-21..28)."""
 from __future__ import annotations
 
 from framework_ui.base.base_component import BaseComponent
@@ -48,7 +48,7 @@ class TelemetrySnapshotsModal(BaseComponent):
     def wait_for_rows(self, timeout=15000, poll_interval_ms=300):
         """Confirmed 2026-09-09 the modal takes a few seconds to load its
         first snapshot batch after opening. Unlike the Live table, this
-        view is anchored/frozen (docs/OF-141.txt CA-23) -- once rows
+        view is anchored/frozen (Jira story OF-141 CA-23) -- once rows
         appear they don't change on their own, so a simple poll-until-
         present is enough, no convergence window needed. Returns self."""
         deadline = self.page.evaluate("Date.now()") + timeout
@@ -81,7 +81,7 @@ class TelemetrySnapshotsModal(BaseComponent):
         return self.page.locator(loc.PAGINATION_INFO).inner_text().strip()
 
     def chronology_label(self):
-        """CA-25 (docs/OF-141.txt): should say "Newest records first" --
+        """CA-25 (Jira story OF-141): should say "Newest records first" --
         the opposite order convention from the Live table. Read via
         textContent, not inner_text(): this label is styled with CSS
         text-transform:uppercase, same caveat as column_headers()."""

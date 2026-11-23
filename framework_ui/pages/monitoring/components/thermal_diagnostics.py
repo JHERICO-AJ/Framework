@@ -1,5 +1,5 @@
 """ThermalDiagnostics -- reusable component: the 3-block site-level
-thermal summary on Data & Monitoring (docs/OF-149.txt)."""
+thermal summary on Data & Monitoring (Jira story OF-149)."""
 from __future__ import annotations
 
 from framework_ui.base.base_component import BaseComponent

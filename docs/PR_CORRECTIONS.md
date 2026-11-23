@@ -51,7 +51,7 @@ Translate to English, keeping behavior identical:
 sweep, run `pytest -v` and all self-checks to confirm nothing broke. Only once the repo is
 fully English, proceed with Corrections 1–10 below.
 
-> Note: file/doc content already in English (README.md, docs/COMO_FUNCIONA.md is Spanish →
+> Note: file/doc content already in English (README.md, the internal QA note 'COMO_FUNCIONA' is Spanish →
 > translate or rename to COMO_FUNCIONA is fine to leave as an ES doc if the team wants a
 > Spanish reference, but the reviewer asked for English — confirm. Default: translate docs
 > too, or keep a single English HOW_IT_WORKS.md.)

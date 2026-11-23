@@ -1,11 +1,11 @@
-"""Data & Monitoring - Event Log (docs/OF-293.txt) -- a live table
+"""Data & Monitoring - Event Log (Jira story OF-293) -- a live table
 (Time/Type/Source/Description) of operational events, plus a "Browse
 history" modal for a static, paginated historical query.
 
 BOLIVIA (Fractal) specifically. Its only real events right now are
 PCS_COMM_LOST (confirmed via direct DB query -- events."Event" has zero
 BATTERY_BMS-sourced events for this site currently), which
-docs/OF-293.txt's own mapping table assigns to the "Trip" category
+Jira story OF-293's own mapping table assigns to the "Trip" category
 ("Falla, protección, comunicación perdida o condición crítica") -- used
 here as a real, live cross-layer fact, not a guess.
 
@@ -30,13 +30,13 @@ pytestmark = pytest.mark.ui
 SITE_NAME = "BOLIVIA"
 EXPECTED_HEADERS = ["Time", "Type", "Source", "Description"]
 
-# docs/OF-293.txt's own query limits per Browse history window.
+# Jira story OF-293's own query limits per Browse history window.
 DOCUMENTED_QUERY_LIMIT = {"Last 24 hours": 1000, "Last 7 days": 2000, "Last 30 days": 5000}
 WINDOW_DURATION = {
     "Last 24 hours": timedelta(hours=24), "Last 7 days": timedelta(days=7), "Last 30 days": timedelta(days=30),
 }
 
-# docs/OF-293.txt's own mapping table: PCS comm-lost/recovered -> Trip.
+# Jira story OF-293's own mapping table: PCS comm-lost/recovered -> Trip.
 # BOLIVIA's only real events today are PCS_COMM_LOST (confirmed live), so
 # this is a hard fact for this site, not a guess.
 SIGNAL_TO_EXPECTED_TYPE = {"PCS_COMM_LOST": "Trip"}
@@ -100,7 +100,7 @@ def test_rows_ordered_most_recent_first(bolivia_monitoring_page):
 
 
 def test_row_values_match_recent_db_events(bolivia_monitoring_page, db_conn, bolivia_site_id):
-    """True cross-layer ground truth: docs/OF-293.txt's own Source/
+    """True cross-layer ground truth: Jira story OF-293's own Source/
     Description priority rules (CA-27/CA-28), applied to events."Event"'s
     real rows for BOLIVIA. Deliberately checks row index 1, NOT row 0
     (the newest): confirmed live 2026-09-10 that the newest, just-pushed
@@ -116,8 +116,14 @@ def test_row_values_match_recent_db_events(bolivia_monitoring_page, db_conn, bol
     assert len(db_events) >= 2, f"need at least 2 events.Event rows for {SITE_NAME!r}, got {len(db_events)}"
     matching = db_events[1]
 
-    assert ui_source == matching["subsystem"], (
-        f"UI Source {ui_source!r} disagrees with the DB event's Subsystem {matching['subsystem']!r}")
+    # Renamed 2026-09-21 (Qase Defect #35 fix): Source now shows the
+    # specific device (Metadata.deviceName/serviceName), not the generic
+    # Subsystem -- see test_source_shows_the_specific_device_not_the_
+    # generic_subsystem for the dedicated check.
+    expected_source = (matching["metadata"] or {}).get("deviceName") or (matching["metadata"] or {}).get(
+        "serviceName") or matching["subsystem"]
+    assert ui_source == expected_source, (
+        f"UI Source {ui_source!r} disagrees with the DB event's expected source {expected_source!r}")
 
     expected_type = SIGNAL_TO_EXPECTED_TYPE.get(matching["signal"])
     if expected_type is not None:
@@ -134,18 +140,57 @@ def test_row_values_match_recent_db_events(bolivia_monitoring_page, db_conn, bol
         f"'signal: description | Cause: ...' composition {expected_description!r}")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-11): the newest row inserted by CA-14's "
-           "live push shows only the bare Description field (e.g. 'PCS "
-           "communication lost'), missing the 'Signal: ' prefix and "
-           "'| Cause: ...' suffix that CA-27 requires -- confirmed by "
-           "watching the same batch over ~23s straight: it stayed bare the "
-           "entire time it was row 0, then showed the correct full "
-           "composition as soon as a newer batch pushed it down to row 1. "
-           "The enrichment logic apparently only runs on full-load/reseed, "
-           "not on the live-push insert path.")
+def test_row_time_matches_db_occurred_at_in_local_time(bolivia_monitoring_page, db_conn, bolivia_site_id):
+    """Confirms Time renders in the browser's LOCAL time, not raw UTC --
+    same getTimezoneOffset() pattern already confirmed for Alarm History
+    and Site Power Telemetry (see test_alarm_history.py's
+    test_row_time_matches_db_last_occurred_in_local_time), now added here
+    to close the one module in this "Logs" family that didn't have its own
+    dedicated check (flagged 2026-09-16). Uses row 1, not row 0, for the
+    same reason test_row_values_match_recent_db_events above does: row 0
+    is the newest live-pushed row, which has its own separate confirmed
+    defect (missing Description enrichment) unrelated to Time -- row 1 has
+    already settled through at least one push cycle."""
+    log = bolivia_monitoring_page.event_log()
+    ui_time, ui_type, ui_source, _ui_description = log.row_values(1)
+
+    db_events = get_recent_events(db_conn, bolivia_site_id, limit=5)
+    assert len(db_events) >= 2, f"need at least 2 events.Event rows for {SITE_NAME!r}, got {len(db_events)}"
+    matching = db_events[1]
+    # Renamed 2026-09-21 (Qase Defect #35 fix): Source is now the specific
+    # device, not the Subsystem -- this is just a sanity check that we
+    # picked the right row, not the real assertion under test here.
+    expected_source = (matching["metadata"] or {}).get("deviceName") or (matching["metadata"] or {}).get(
+        "serviceName") or matching["subsystem"]
+    assert ui_source == expected_source, (
+        f"UI Source {ui_source!r} disagrees with the DB event's expected source "
+        f"{expected_source!r} -- picked the wrong row to compare Time against")
+
+    offset_min = bolivia_monitoring_page.page.evaluate("() => new Date().getTimezoneOffset()")
+    local_dt = matching["occurred_at"].astimezone(timezone.utc) - timedelta(minutes=offset_min)
+    expected = local_dt.strftime("%d/%m/%Y, %H:%M:%S")
+
+    def _sort_key(display_time):
+        match = re.match(r"(\d{2})/(\d{2})/(\d{4}),\s*(\d{2}):(\d{2}):(\d{2})", display_time)
+        assert match, f"unrecognized Event Log time format: {display_time!r}"
+        day, month, year, hour, minute, second = (int(g) for g in match.groups())
+        return (year, month, day, hour, minute, second)
+
+    assert ui_time == expected or abs(
+        (datetime(*_sort_key(ui_time)) - datetime(*_sort_key(expected))).total_seconds()
+    ) <= 5, f"UI Time {ui_time!r} isn't within 5s of the DB OccurredAt converted to local time {expected!r}"
+
+
 def test_newest_live_pushed_row_has_full_description_enrichment(bolivia_monitoring_page, db_conn, bolivia_site_id):
+    """CONFIRMED DEFECT 2026-09-11 (Qase Defect #34): the newest row
+    inserted by CA-14's live push showed only the bare Description field
+    (e.g. 'PCS communication lost'), missing the 'Signal: ' prefix and
+    '| Cause: ...' suffix that CA-27 requires -- confirmed by watching the
+    same batch over ~23s straight: it stayed bare the entire time it was
+    row 0, then showed the correct full composition as soon as a newer
+    batch pushed it down to row 1 (the enrichment logic apparently only
+    ran on full-load/reseed, not on the live-push insert path). FIXED as
+    of 2026-09-21 (re-verified after the JF/FixMonitoring deploy)."""
     log = bolivia_monitoring_page.event_log()
     ui_time, ui_type, ui_source, ui_description = log.row_values(0)
 
@@ -227,17 +272,27 @@ def test_browse_history_24h_rows_show_day_label_and_clock(bolivia_monitoring_pag
 @pytest.mark.parametrize("window", ["Last 7 days", "Last 30 days"])
 def test_7d_and_30d_rows_show_full_datetime_not_day_split(bolivia_monitoring_page, window):
     """CA-31: unlike 24h's "Today" + clock split, 7d/30d rows show one
-    full "D month YYYY, HH:MM:SS" string -- no separate day label."""
+    full datetime string -- no separate day label.
+
+    The regex below was updated 2026-09-21 (Qase Defect #53, re-verified
+    after the JF/FixMonitoring locale fix, same shared modal component as
+    Alarm History's own equivalent test): it used to accept the old
+    Spanish, day-first shape ("11 sept 2026, HH:MM:SS") as if that were
+    correct -- the real spec is English, month-first ("Sep 11, 2026,
+    HH:MM:SS"). Confirmed live the format already changed; this test's own
+    stale regex was the only thing still failing here, not the app."""
     log = bolivia_monitoring_page.event_log()
     modal = log.open_browse_history()
     try:
         modal.select_window(window)
+        modal.wait_for_rows()
         assert modal.row_count() > 0, "need at least 1 row to check the time format"
         assert modal.row_time_day(0) is None, (
             f"expected {window} rows to use the full-datetime format, not the 24h day/clock split")
         full_datetime = modal.row_time_datetime(0)
-        assert re.match(r"^\d{1,2}\s+\w+\.?\s+\d{4},\s*\d{2}:\d{2}:\d{2}$", full_datetime or ""), (
-            f"expected a 'D month YYYY, HH:MM:SS' datetime, got: {full_datetime!r}")
+        assert re.match(r"^[A-Za-z]+\.?\s+\d{1,2},\s+\d{4},\s*\d{2}:\d{2}:\d{2}$", full_datetime or ""), (
+            f"expected an English, month-first 'Month D, YYYY, HH:MM:SS' datetime, "
+            f"got: {full_datetime!r}")
     finally:
         modal.close()
 
@@ -253,6 +308,37 @@ def test_day_range_filter_only_appears_for_7d_and_30d(bolivia_monitoring_page):
         assert modal.has_day_range_filter(), "expected a day-range filter on the 7d window"
         modal.select_window("Last 30 days")
         assert modal.has_day_range_filter(), "expected a day-range filter on the 30d window"
+    finally:
+        modal.close()
+
+
+# Spanish weekday abbreviations -- unlike month abbreviations (e.g. "sep"
+# is identical in English and Spanish), these never overlap with English's
+# own Mon/Tue/Wed/Thu/Fri/Sat/Sun, so checking just the leading weekday
+# token is an unambiguous locale signal.
+_SPANISH_DAY_ABBR = {"lun", "mar", "mie", "mié", "jue", "vie", "sab", "sáb", "dom"}
+
+
+def test_day_range_dropdown_options_render_in_english(bolivia_monitoring_page):
+    """CONFIRMED DEFECT (Qase Defect #52): the day-range dropdown's own
+    <option> text rendered Spanish weekday/month abbreviations (e.g. 'sab,
+    5 sept 2026') instead of English (e.g. 'Sat, Sep 5, 2026') -- this is
+    an English-only platform. Identical shared modal component as Alarm
+    History's own equivalent test."""
+    log = bolivia_monitoring_page.event_log()
+    modal = log.open_browse_history()
+    try:
+        modal.select_window("Last 7 days")
+        option_texts = modal.day_range_option_texts()
+        assert option_texts, "expected at least one day-range option"
+
+        spanish_found = [
+            t for t in option_texts
+            if re.match(r"^\w+,", t) and t.split(",")[0].strip().lower() in _SPANISH_DAY_ABBR
+        ]
+        assert not spanish_found, (
+            f"expected all day-range options in English, found Spanish-looking "
+            f"option(s): {spanish_found!r} (full list: {option_texts!r})")
     finally:
         modal.close()
 
@@ -283,7 +369,7 @@ def test_day_range_filter_narrows_the_result_count(bolivia_monitoring_page):
 
 @pytest.mark.parametrize("window", ["Last 24 hours", "Last 7 days", "Last 30 days"])
 def test_pagination_total_never_exceeds_documented_query_limit(bolivia_monitoring_page, window):
-    """CA-22/CA-32: docs/OF-293.txt's own query limits (24h<=1000,
+    """CA-22/CA-32: Jira story OF-293's own query limits (24h<=1000,
     7d<=2000, 30d<=5000) -- read from the pagination footer's "of N" text,
     not hardcoded, so this stays correct if BOLIVIA's real event volume
     changes."""
@@ -438,3 +524,28 @@ def test_close_and_reopen_resets_to_default_window_and_page(bolivia_monitoring_p
         assert modal.current_page_number() == 1, "expected the page to reset to 1"
     finally:
         modal.close()
+
+
+def test_source_shows_the_specific_device_not_the_generic_subsystem(bolivia_monitoring_page, db_conn, bolivia_site_id):
+    """CONFIRMED DEFECT 2026-09-XX (Qase Defect #35): Source always showed
+    'TRANSFORMER_PCS' (the general subsystem name), never identifying
+    which specific PCS had the problem -- per the approved design
+    examples, it should show the specific device (e.g. 'PCS-2'). FIXED as
+    of 2026-09-21 (re-verified after the JF/FixMonitoring deploy): Source
+    now shows the real device name (Metadata.deviceName/serviceName, e.g.
+    'PCS-3'), not the subsystem. Uses row 1, not row 0, for the same
+    reason test_row_values_match_recent_db_events does (row 0 is the
+    newest live-pushed row, historically a separate concern)."""
+    log = bolivia_monitoring_page.event_log()
+    _ui_time, _ui_type, ui_source, _ui_description = log.row_values(1)
+
+    db_events = get_recent_events(db_conn, bolivia_site_id, limit=5)
+    assert len(db_events) >= 2, f"need at least 2 events.Event rows for {SITE_NAME!r}, got {len(db_events)}"
+    matching = db_events[1]
+    expected_device = (matching["metadata"] or {}).get("deviceName") or (matching["metadata"] or {}).get("serviceName")
+    if expected_device is None:
+        pytest.skip(f"no deviceName/serviceName in this row's Metadata to compare against: {matching!r}")
+
+    assert ui_source == expected_device, (
+        f"expected Source to show the specific device {expected_device!r}, "
+        f"got the generic subsystem/other value {ui_source!r}")

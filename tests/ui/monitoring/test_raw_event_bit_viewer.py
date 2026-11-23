@@ -1,4 +1,4 @@
-"""Data & Monitoring - Raw Event Bit Viewer (docs/OF-381.txt): compacted
+"""Data & Monitoring - Raw Event Bit Viewer (Jira story OF-381): compacted
 evt1/evt2/pcsevt1 bitfield words + a "Decode" modal listing only the
 active (Set) bits. Always live, no 24h/7d/30d applicability (CA-05), same
 pattern as Thermal Diagnostics/Site Load & Backup Context/PCS Energy
@@ -6,7 +6,7 @@ Statistics' non-applicability.
 
 BOLIVIA (Fractal). Confirmed live 2026-09-13 (30s poll, no change): evt1
 and evt2 are permanently "—" for this site. Initially assumed this was a
-genuine, benign Fractal gap (docs/omniops_data_intake_BOLIVIA.xlsx's
+genuine, benign Fractal gap (the internal QA note 'omniops_data_intake_BOLIVIA''s
 Bitfield-Registers sheet has no ENABLED entry mapping to this panel's
 Evt1/Evt2 -- true, but that only affects LABELS, not the raw value) --
 but reading the real backend source (FractalRawDataMapper.cs) proved
@@ -20,11 +20,11 @@ FormatEventBits itself (SnapshotMapperSupport.cs):
 When the real telemetry value is a genuine 0 (all clear, no bits set --
 confirmed live: EMU_STATUS_WORD_1..10 are all 0 for BOLIVIA right now),
 this returns null -- collapsing "genuinely zero" and "no data received"
-into the exact same downstream value, even though docs/OF-381.txt's own
+into the exact same downstream value, even though Jira story OF-381's own
 formatBitWord table treats them as different, meaningful states ("Vacío/
 nulo -> —" vs "Solo ceros -> 0×N"). Confirmed EmuAlarmWord1 carries real,
 non-trivial diagnostic data (not a throwaway field) via
-docs/fractal-alarms-coverage-open-by-id 1.md: alarm #70 (Lightning/SPD)
+the internal QA note 'fractal-alarms-coverage-open-by-id 1': alarm #70 (Lightning/SPD)
 reads "EMU Status&Alarm · Alarm word 1 bit5 690V SPD" -- exactly the
 field this panel's Evt1 is built from. An engineer using this panel
 specifically to check EMS/PCS bitfields (the HU's own stated purpose)
@@ -90,40 +90,32 @@ def test_global_time_range_does_not_change_values(bolivia_monitoring_page):
     assert before == after, f"expected values unaffected by the global range, before={before}, after={after}"
 
 
-def test_evt1_and_evt2_stay_consistently_dash_across_time(bolivia_monitoring_page):
-    """NOT the same claim as before this was investigated further --
-    this only confirms the OBSERVED state is stable/reproducible (not a
-    one-off glitch), which is real regardless of whether "—" is itself
-    correct. See test_evt1_shows_dash_instead_of_a_genuine_zero_word
-    below for the confirmed defect this observation feeds into."""
+def test_evt2_stays_consistently_dash_across_time(bolivia_monitoring_page):
+    """evt2 has no mapped Fractal source at all (unlike evt1, see
+    test_evt1_shows_a_genuine_zero_word_not_a_dash below) -- per
+    the internal QA note 'MnitoringFix' section 8.1, evt2/pcsevt1 can legitimately stay
+    dash forever if the manufacturer never sends them, which isn't
+    necessarily a bug. This only confirms the OBSERVED state is
+    stable/reproducible (not a one-off glitch)."""
     viewer = bolivia_monitoring_page.raw_event_bit_viewer()
     for _ in range(4):
-        assert viewer.word_value("evt1") == DASH, f"expected evt1={DASH!r}, got: {viewer.word_value('evt1')!r}"
         assert viewer.word_value("evt2") == DASH, f"expected evt2={DASH!r}, got: {viewer.word_value('evt2')!r}"
         bolivia_monitoring_page.page.wait_for_timeout(5000)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT (2026-09-13), found by reading the real "
-           "backend source: FractalRawDataMapper.cs maps Evt1 from real "
-           "live telemetry (emu.AlarmWord1, falling back to "
-           "emu.StatusWord1) -- it is NOT an unmapped/absent field for "
-           "Fractal, contrary to the initial assumption. The actual bug "
-           "is in SnapshotMapperSupport.FormatEventBits: "
-           "'bits == 0 ? null : bits.ToString(\"X8\")' -- a genuine "
-           "all-clear 0 (confirmed live: BOLIVIA's EMU status words are "
-           "all 0 right now) collapses to the exact same null/'—' shown "
-           "for 'no data at all', even though docs/OF-381.txt's own "
-           "compaction table treats 'vacío/nulo' and 'solo ceros' as "
-           "different, meaningful states (dash vs '0×N'). Confirmed "
-           "EmuAlarmWord1 is a real, meaningful field (not a throwaway "
-           "one) via docs/fractal-alarms-coverage-open-by-id 1.md: alarm "
-           "#70 (Lightning/SPD) reads 'EMU Alarm word 1 bit5 690V SPD' -- "
-           "the exact field Evt1 is built from. An engineer using this "
-           "panel to check EMS bitfields can't tell 'checked, all clear' "
-           "from 'no data available'.")
-def test_evt1_shows_dash_instead_of_a_genuine_zero_word(bolivia_monitoring_page):
+def test_evt1_shows_a_genuine_zero_word_not_a_dash(bolivia_monitoring_page):
+    """CONFIRMED DEFECT 2026-09-13 (Qase Defect #46), found by reading the
+    real backend source: FractalRawDataMapper.cs maps Evt1 from real live
+    telemetry (emu.AlarmWord1, falling back to emu.StatusWord1) -- it is
+    NOT an unmapped/absent field for Fractal, contrary to the initial
+    assumption. The actual bug was in SnapshotMapperSupport.FormatEventBits:
+    'bits == 0 ? null : bits.ToString("X8")' -- a genuine all-clear 0
+    collapsed to the exact same null/'—' shown for 'no data at all', even
+    though Jira story OF-381's own compaction table treats 'vacío/nulo' and
+    'solo ceros' as different, meaningful states (dash vs '0×N'). FIXED as
+    of 2026-09-21 (re-verified after the JF/FixMonitoring deploy): evt1
+    now reads '0×11' (a real zero word), no longer indistinguishable from
+    'no data available'."""
     viewer = bolivia_monitoring_page.raw_event_bit_viewer()
     assert viewer.word_value("evt1") != DASH, (
         "expected evt1 to show a real zero word (e.g. '0×11') since the underlying EMU "
@@ -256,7 +248,7 @@ def test_decode_modal_only_lists_pcsevt1_group_when_only_it_has_set_bits(bolivia
 def test_decode_modal_row_uses_the_pcs_fallback_catalog_label(bolivia_monitoring_page):
     """CA-20: label priority -- BOLIVIA's own Intake Bitfield Registers
     has no enabled entry for PcsEvt1 (confirmed in
-    docs/omniops_data_intake_BOLIVIA.xlsx), so bit 1 must fall to the
+    the internal QA note 'omniops_data_intake_BOLIVIA'), so bit 1 must fall to the
     fixed PCS catalog label ("PCS Event Bit 1"), not a generic "Field bit
     n" string."""
     viewer = bolivia_monitoring_page.raw_event_bit_viewer()
@@ -285,3 +277,25 @@ def test_decode_modal_close_does_not_change_site_or_range(bolivia_monitoring_pag
 
     badge_after = bolivia_monitoring_page.page.locator(".monitoring-time-range-badge").first.inner_text()
     assert badge_before == badge_after, f"expected the global badge unaffected, before={badge_before!r}, after={badge_after!r}"
+
+
+def test_decode_modal_lists_the_bits_that_are_actually_set(bolivia_monitoring_page):
+    """The Decode modal's own purpose (Jira story OF-381) is to break a
+    compacted word down into its individual set bits + labels + owning
+    alarm rule. If the compacted word is nonzero, the modal must show at
+    least one bit row for it -- an empty decode for a genuinely nonzero
+    word is a contradiction, not just an incomplete label."""
+    viewer = bolivia_monitoring_page.raw_event_bit_viewer()
+    evt1_value = viewer.word_value("evt1")
+    if evt1_value == DASH:
+        pytest.skip("evt1 is currently — (no data) -- nothing to decode")
+
+    modal = viewer.open_decode()
+    try:
+        total_rows = sum(modal.rows_for_group(field).count() for field in modal.group_field_names())
+        assert total_rows > 0, (
+            f"evt1's compacted value is {evt1_value!r} (nonzero), but the Decode "
+            f"modal lists zero bit rows across all its groups -- expected at least "
+            f"one row identifying which bit(s) are set")
+    finally:
+        modal.close()
